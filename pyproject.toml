@@ -1,8 +1,25 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "aws-util"
 version = "0.1.0"
-description = "AWS Utility Library"
+description = "A utility library for AWS services"
+requires-python = ">=3.6"
+dependencies = [
+    "boto3"
+]
+
+[[project.authors]]
+name = "Masrik Dahir"
+
+[project.classifiers]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
