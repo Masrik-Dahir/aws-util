@@ -3,6 +3,7 @@
 Combines Lambda, ECS, ECR, S3, and SSM to provide end-to-end deployment
 workflows that would otherwise require coordinating multiple boto3 calls.
 """
+
 from __future__ import annotations
 
 import time
@@ -17,6 +18,7 @@ from aws_util._client import get_client
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 
 class LambdaDeployResult(BaseModel):
     """Result of a Lambda function deployment."""
@@ -45,6 +47,7 @@ class ECSDeployResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Lambda deployment utilities
 # ---------------------------------------------------------------------------
+
 
 def update_lambda_code_from_s3(
     function_name: str,
@@ -78,8 +81,7 @@ def update_lambda_code_from_s3(
         )
     except ClientError as exc:
         raise RuntimeError(
-            f"Failed to update Lambda {function_name!r} "
-            f"from s3://{bucket}/{key}: {exc}"
+            f"Failed to update Lambda {function_name!r} from s3://{bucket}/{key}: {exc}"
         ) from exc
     return LambdaDeployResult(
         function_name=resp["FunctionName"],
@@ -290,9 +292,7 @@ def wait_for_lambda_update(
             return
         if status == "Failed":
             reason = resp.get("LastUpdateStatusReasonCode", "")
-            raise RuntimeError(
-                f"Lambda update failed for {function_name!r}: {reason}"
-            )
+            raise RuntimeError(f"Lambda update failed for {function_name!r}: {reason}")
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 f"Lambda {function_name!r} update did not finish within {timeout}s"
@@ -353,10 +353,11 @@ def deploy_lambda_with_config(
     merged_env: dict[str, str] = {}
     if ssm_prefix:
         from aws_util.parameter_store import get_parameters_by_path
+
         ssm_params = get_parameters_by_path(ssm_prefix, region_name=region_name)
         prefix_strip = ssm_prefix.rstrip("/") + "/"
         for k, v in ssm_params.items():
-            env_key = (k[len(prefix_strip):] if k.startswith(prefix_strip) else k)
+            env_key = k[len(prefix_strip) :] if k.startswith(prefix_strip) else k
             env_key = env_key.lstrip("/").replace("/", "_").upper()
             merged_env[env_key] = v
     if env_vars:
@@ -369,7 +370,11 @@ def deploy_lambda_with_config(
         )
     else:
         result = update_lambda_code_from_s3(
-            function_name, s3_bucket, s3_key, publish=False, region_name=region_name  # type: ignore[arg-type]
+            function_name,
+            s3_bucket,
+            s3_key,
+            publish=False,
+            region_name=region_name,  # type: ignore[arg-type]
         )
 
     # Wait for the code update to propagate before publishing
@@ -410,6 +415,7 @@ def deploy_lambda_with_config(
 # ---------------------------------------------------------------------------
 # ECS deployment utilities
 # ---------------------------------------------------------------------------
+
 
 def deploy_ecs_image(
     cluster: str,
@@ -457,9 +463,7 @@ def deploy_ecs_image(
 
     services = svc_resp.get("services", [])
     if not services:
-        raise RuntimeError(
-            f"ECS service {service!r} not found in cluster {cluster!r}"
-        )
+        raise RuntimeError(f"ECS service {service!r} not found in cluster {cluster!r}")
     svc = services[0]
     task_def_arn: str = svc["taskDefinition"]
 
@@ -482,8 +486,7 @@ def deploy_ecs_image(
                 break
         if not matched:
             raise RuntimeError(
-                f"Container {container_name!r} not found in task definition "
-                f"{task_def_arn!r}"
+                f"Container {container_name!r} not found in task definition {task_def_arn!r}"
             )
     else:
         containers[0]["image"] = new_image_uri
@@ -494,10 +497,20 @@ def deploy_ecs_image(
         "containerDefinitions": containers,
     }
     for field in (
-        "taskRoleArn", "executionRoleArn", "networkMode", "volumes",
-        "placementConstraints", "requiresCompatibilities", "cpu", "memory",
-        "pidMode", "ipcMode", "proxyConfiguration", "inferenceAccelerators",
-        "ephemeralStorage", "runtimePlatform",
+        "taskRoleArn",
+        "executionRoleArn",
+        "networkMode",
+        "volumes",
+        "placementConstraints",
+        "requiresCompatibilities",
+        "cpu",
+        "memory",
+        "pidMode",
+        "ipcMode",
+        "proxyConfiguration",
+        "inferenceAccelerators",
+        "ephemeralStorage",
+        "runtimePlatform",
     ):
         if td.get(field):
             register_kwargs[field] = td[field]
@@ -517,9 +530,7 @@ def deploy_ecs_image(
             forceNewDeployment=True,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to update ECS service {service!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to update ECS service {service!r}: {exc}") from exc
 
     deployments = update_resp.get("service", {}).get("deployments", [])
     deployment_id = deployments[0].get("id") if deployments else None
@@ -527,12 +538,11 @@ def deploy_ecs_image(
     if wait:
         deadline = time.monotonic() + timeout
         while True:
-            svc_resp = client.describe_services(
-                cluster=cluster, services=[service]
-            )
+            svc_resp = client.describe_services(cluster=cluster, services=[service])
             current_svc = svc_resp.get("services", [{}])[0]
             active = [
-                d for d in current_svc.get("deployments", [])
+                d
+                for d in current_svc.get("deployments", [])
                 if d["status"] == "PRIMARY"
             ]
             if active and active[0].get("rolloutState") in {"COMPLETED", None}:

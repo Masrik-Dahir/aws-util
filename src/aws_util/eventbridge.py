@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class EventEntry(BaseModel):
     """A single event to publish to Amazon EventBridge."""
 
@@ -48,6 +49,7 @@ class PutEventsResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def put_event(
     source: str,
@@ -122,12 +124,8 @@ def put_events(
 
     failed = resp.get("FailedEntryCount", 0)
     if failed:
-        failed_entries = [
-            e for e in resp.get("Entries", []) if e.get("ErrorCode")
-        ]
-        raise RuntimeError(
-            f"{failed} event(s) failed to publish: {failed_entries}"
-        )
+        failed_entries = [e for e in resp.get("Entries", []) if e.get("ErrorCode")]
+        raise RuntimeError(f"{failed} event(s) failed to publish: {failed_entries}")
 
     return PutEventsResult(
         failed_count=failed,
@@ -139,6 +137,7 @@ def put_events(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def put_events_chunked(
     events: list[EventEntry],

@@ -11,6 +11,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class BoundingBox(BaseModel):
     """Normalised bounding box (values 0.0–1.0 relative to image dimensions)."""
 
@@ -72,6 +73,7 @@ class FaceMatch(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _s3_image(bucket: str, key: str) -> dict:
     return {"S3Object": {"Bucket": bucket, "Name": key}}
 
@@ -92,6 +94,7 @@ def _bbox(bb: dict) -> BoundingBox:
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def detect_labels(
     image_bytes: bytes | None = None,
@@ -168,9 +171,7 @@ def detect_faces(
     client = get_client("rekognition", region_name)
     image = _resolve_image(image_bytes, s3_bucket, s3_key)
     try:
-        resp = client.detect_faces(
-            Image=image, Attributes=attributes or ["DEFAULT"]
-        )
+        resp = client.detect_faces(Image=image, Attributes=attributes or ["DEFAULT"])
     except ClientError as exc:
         raise RuntimeError(f"detect_faces failed: {exc}") from exc
 
@@ -230,9 +231,9 @@ def detect_text(
             detected_text=td["DetectedText"],
             text_type=td["Type"],
             confidence=td["Confidence"],
-            bounding_box=_bbox(td["Geometry"]["BoundingBox"])
-            if td.get("Geometry")
-            else None,
+            bounding_box=(
+                _bbox(td["Geometry"]["BoundingBox"]) if td.get("Geometry") else None
+            ),
         )
         for td in resp.get("TextDetections", [])
     ]
@@ -270,9 +271,11 @@ def compare_faces(
     return [
         FaceMatch(
             similarity=fm["Similarity"],
-            bounding_box=_bbox(fm["Face"]["BoundingBox"])
-            if fm.get("Face", {}).get("BoundingBox")
-            else None,
+            bounding_box=(
+                _bbox(fm["Face"]["BoundingBox"])
+                if fm.get("Face", {}).get("BoundingBox")
+                else None
+            ),
         )
         for fm in resp.get("FaceMatches", [])
     ]
@@ -322,6 +325,7 @@ def detect_moderation_labels(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def create_collection(
     collection_id: str,
@@ -513,6 +517,7 @@ def ensure_collection(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _resolve_image(
     image_bytes: bytes | None,
     s3_bucket: str | None,
@@ -522,6 +527,4 @@ def _resolve_image(
         return _bytes_image(image_bytes)
     if s3_bucket and s3_key:
         return _s3_image(s3_bucket, s3_key)
-    raise ValueError(
-        "Provide either image_bytes or both s3_bucket and s3_key"
-    )
+    raise ValueError("Provide either image_bytes or both s3_bucket and s3_key")

@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class FirehosePutResult(BaseModel):
     """Result of a Kinesis Firehose ``PutRecordBatch`` call."""
 
@@ -41,6 +42,7 @@ class DeliveryStream(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def put_record(
     delivery_stream_name: str,
@@ -167,9 +169,7 @@ def describe_delivery_stream(
     """
     client = get_client("firehose", region_name)
     try:
-        resp = client.describe_delivery_stream(
-            DeliveryStreamName=delivery_stream_name
-        )
+        resp = client.describe_delivery_stream(DeliveryStreamName=delivery_stream_name)
     except ClientError as exc:
         raise RuntimeError(
             f"describe_delivery_stream failed for {delivery_stream_name!r}: {exc}"
@@ -180,13 +180,16 @@ def describe_delivery_stream(
         delivery_stream_arn=desc["DeliveryStreamARN"],
         delivery_stream_status=desc["DeliveryStreamStatus"],
         delivery_stream_type=desc["DeliveryStreamType"],
-        create_timestamp=str(desc.get("CreateTimestamp")) if desc.get("CreateTimestamp") else None,
+        create_timestamp=(
+            str(desc.get("CreateTimestamp")) if desc.get("CreateTimestamp") else None
+        ),
     )
 
 
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def put_record_batch_with_retry(
     delivery_stream_name: str,
@@ -247,6 +250,7 @@ def put_record_batch_with_retry(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _encode(data: bytes | str | dict | list) -> bytes:
     if isinstance(data, bytes):

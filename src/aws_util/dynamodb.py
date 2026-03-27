@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 # Models
 # ---------------------------------------------------------------------------
 
+
 class DynamoKey(BaseModel):
     """A DynamoDB primary key (partition key + optional sort key)."""
 
@@ -33,6 +34,7 @@ class DynamoKey(BaseModel):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _table_resource(table_name: str, region_name: str | None = None):
     """Return a boto3 DynamoDB Table resource (not a low-level client)."""
     kwargs: dict[str, str] = {}
@@ -45,6 +47,7 @@ def _table_resource(table_name: str, region_name: str | None = None):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def get_item(
     table_name: str,
@@ -72,9 +75,7 @@ def get_item(
     try:
         resp = table.get_item(Key=raw_key, ConsistentRead=consistent_read)
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_item failed on {table_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_item failed on {table_name!r}: {exc}") from exc
     return resp.get("Item")
 
 
@@ -103,9 +104,7 @@ def put_item(
     try:
         table.put_item(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"put_item failed on {table_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"put_item failed on {table_name!r}: {exc}") from exc
 
 
 def update_item(
@@ -147,9 +146,7 @@ def update_item(
             ReturnValues="ALL_NEW",
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"update_item failed on {table_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"update_item failed on {table_name!r}: {exc}") from exc
     return resp.get("Attributes", {})
 
 
@@ -178,9 +175,7 @@ def delete_item(
     try:
         table.delete_item(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"delete_item failed on {table_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"delete_item failed on {table_name!r}: {exc}") from exc
 
 
 def query(
@@ -237,9 +232,7 @@ def query(
                 break
             kwargs["ExclusiveStartKey"] = last_key
     except ClientError as exc:
-        raise RuntimeError(
-            f"query failed on {table_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"query failed on {table_name!r}: {exc}") from exc
     return items
 
 
@@ -330,9 +323,7 @@ def batch_get(
             items.extend(resp.get("Responses", {}).get(table_name, []))
             request = resp.get("UnprocessedKeys", {})
     except ClientError as exc:
-        raise RuntimeError(
-            f"batch_get failed on {table_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"batch_get failed on {table_name!r}: {exc}") from exc
     return items
 
 
@@ -362,14 +353,13 @@ def batch_write(
             for item in items:
                 batch.put_item(Item=item)
     except ClientError as exc:
-        raise RuntimeError(
-            f"batch_write failed on {table_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"batch_write failed on {table_name!r}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def transact_write(
     operations: list[dict[str, Any]],
@@ -436,15 +426,14 @@ def transact_get(
     client = boto3.client("dynamodb", **kwargs)
 
     # Wrap plain dicts if caller used {TableName, Key} shorthand
-    wrapped = [
-        item if "Get" in item else {"Get": item} for item in items
-    ]
+    wrapped = [item if "Get" in item else {"Get": item} for item in items]
     try:
         resp = client.transact_get_items(TransactItems=wrapped)
     except ClientError as exc:
         raise RuntimeError(f"transact_get failed: {exc}") from exc
 
     from boto3.dynamodb.types import TypeDeserializer
+
     deserializer = TypeDeserializer()
 
     results: list[dict[str, Any] | None] = []

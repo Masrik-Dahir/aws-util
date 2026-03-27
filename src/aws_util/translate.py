@@ -9,6 +9,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class TranslateResult(BaseModel):
     """The result of an Amazon Translate call."""
 
@@ -31,6 +32,7 @@ class TranslateLanguage(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def translate_text(
     text: str,
@@ -81,6 +83,7 @@ def translate_text(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def translate_batch(
     texts: list[str],

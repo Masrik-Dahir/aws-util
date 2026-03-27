@@ -16,6 +16,7 @@ _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 # Models
 # ---------------------------------------------------------------------------
 
+
 class AthenaExecution(BaseModel):
     """The status of an Athena query execution."""
 
@@ -46,6 +47,7 @@ class AthenaExecution(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def start_query(
     query: str,
@@ -140,10 +142,7 @@ def get_query_results(
         for page in paginator.paginate(**kwargs):
             result_rows = page["ResultSet"]["Rows"]
             if first_page:
-                column_names = [
-                    col["VarCharValue"]
-                    for col in result_rows[0]["Data"]
-                ]
+                column_names = [col["VarCharValue"] for col in result_rows[0]["Data"]]
                 result_rows = result_rows[1:]  # skip header row
                 first_page = False
             for row in result_rows:
@@ -183,15 +182,12 @@ def wait_for_query(
     """
     deadline = time.monotonic() + timeout
     while True:
-        execution = get_query_execution(
-            query_execution_id, region_name=region_name
-        )
+        execution = get_query_execution(query_execution_id, region_name=region_name)
         if execution.finished:
             return execution
         if time.monotonic() >= deadline:
             raise TimeoutError(
-                f"Athena query {query_execution_id!r} did not finish "
-                f"within {timeout}s"
+                f"Athena query {query_execution_id!r} did not finish within {timeout}s"
             )
         time.sleep(poll_interval)
 
@@ -232,7 +228,9 @@ def run_query(
         query, database, output_location, workgroup, region_name=region_name
     )
     execution = wait_for_query(
-        execution_id, poll_interval=poll_interval, timeout=timeout,
+        execution_id,
+        poll_interval=poll_interval,
+        timeout=timeout,
         region_name=region_name,
     )
     if not execution.succeeded:
@@ -246,6 +244,7 @@ def run_query(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def get_table_schema(
     database: str,
@@ -318,13 +317,10 @@ def run_ddl(
     execution_id = start_query(
         statement, database, output_location, workgroup, region_name=region_name
     )
-    execution = wait_for_query(
-        execution_id, timeout=timeout, region_name=region_name
-    )
+    execution = wait_for_query(execution_id, timeout=timeout, region_name=region_name)
     if not execution.succeeded:
         raise RuntimeError(
-            f"DDL statement failed with state {execution.state!r}: "
-            f"{execution.state_change_reason}"
+            f"DDL statement failed with state {execution.state!r}: {execution.state_change_reason}"
         )
     return execution
 
@@ -354,6 +350,7 @@ def stop_query(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_execution(ex: dict) -> AthenaExecution:
     status = ex.get("Status", {})

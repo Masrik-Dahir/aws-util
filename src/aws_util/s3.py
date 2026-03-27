@@ -13,6 +13,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class S3Object(BaseModel):
     """Metadata for a single S3 object."""
 
@@ -39,6 +40,7 @@ class PresignedUrl(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def upload_file(
     bucket: str,
@@ -157,9 +159,7 @@ def download_bytes(
         resp = client.get_object(Bucket=bucket, Key=key)
         return resp["Body"].read()
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to download s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to download s3://{bucket}/{key}: {exc}") from exc
 
 
 def list_objects(
@@ -256,9 +256,7 @@ def delete_object(
     try:
         client.delete_object(Bucket=bucket, Key=key)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete s3://{bucket}/{key}: {exc}") from exc
 
 
 def copy_object(
@@ -289,8 +287,7 @@ def copy_object(
         )
     except ClientError as exc:
         raise RuntimeError(
-            f"Failed to copy s3://{src_bucket}/{src_key} "
-            f"→ s3://{dst_bucket}/{dst_key}: {exc}"
+            f"Failed to copy s3://{src_bucket}/{src_key} → s3://{dst_bucket}/{dst_key}: {exc}"
         ) from exc
 
 
@@ -336,6 +333,7 @@ def presigned_url(
 # Complex utilities
 # ---------------------------------------------------------------------------
 
+
 def read_json(
     bucket: str,
     key: str,
@@ -361,9 +359,7 @@ def read_json(
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"s3://{bucket}/{key} is not valid JSON: {exc}"
-        ) from exc
+        raise ValueError(f"s3://{bucket}/{key} is not valid JSON: {exc}") from exc
 
 
 def write_json(
@@ -388,7 +384,9 @@ def write_json(
     import json
 
     payload = json.dumps(data, indent=indent).encode("utf-8")
-    upload_bytes(bucket, key, payload, content_type="application/json", region_name=region_name)
+    upload_bytes(
+        bucket, key, payload, content_type="application/json", region_name=region_name
+    )
 
 
 def read_jsonl(
@@ -585,7 +583,9 @@ def delete_prefix(
             keys = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
             if not keys:
                 continue
-            client.delete_objects(Bucket=bucket, Delete={"Objects": keys, "Quiet": True})
+            client.delete_objects(
+                Bucket=bucket, Delete={"Objects": keys, "Quiet": True}
+            )
             deleted_count += len(keys)
     except ClientError as exc:
         raise RuntimeError(
@@ -674,8 +674,10 @@ def batch_copy(
 
     def _copy(op: dict) -> None:
         copy_object(
-            op["src_bucket"], op["src_key"],
-            op["dst_bucket"], op["dst_key"],
+            op["src_bucket"],
+            op["src_key"],
+            op["dst_bucket"],
+            op["dst_key"],
             region_name=region_name,
         )
 

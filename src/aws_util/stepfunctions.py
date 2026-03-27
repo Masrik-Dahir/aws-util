@@ -17,6 +17,7 @@ _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"}
 # Models
 # ---------------------------------------------------------------------------
 
+
 class SFNExecution(BaseModel):
     """A Step Functions state machine execution."""
 
@@ -59,6 +60,7 @@ class StateMachine(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def start_execution(
     state_machine_arn: str,
@@ -147,9 +149,7 @@ def stop_execution(
     """
     client = get_client("stepfunctions", region_name)
     try:
-        client.stop_execution(
-            executionArn=execution_arn, error=error, cause=cause
-        )
+        client.stop_execution(executionArn=execution_arn, error=error, cause=cause)
     except ClientError as exc:
         raise RuntimeError(
             f"stop_execution failed for {execution_arn!r}: {exc}"
@@ -271,6 +271,7 @@ def list_state_machines(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_execution(resp: dict) -> SFNExecution:
     def _try_json(s: str | None) -> dict | str | None:
         if not s:
@@ -297,6 +298,7 @@ def _parse_execution(resp: dict) -> SFNExecution:
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def run_and_wait(
     state_machine_arn: str,

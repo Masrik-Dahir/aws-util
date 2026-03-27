@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class MetricDimension(BaseModel):
     """A single CloudWatch metric dimension (name/value pair)."""
 
@@ -35,15 +36,33 @@ class MetricDatum(BaseModel):
     @classmethod
     def _validate_unit(cls, v: str) -> str:
         valid = {
-            "Seconds", "Microseconds", "Milliseconds",
-            "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes",
-            "Bits", "Kilobits", "Megabits", "Gigabits", "Terabits",
-            "Percent", "Count",
-            "Bytes/Second", "Kilobytes/Second", "Megabytes/Second",
-            "Gigabytes/Second", "Terabytes/Second",
-            "Bits/Second", "Kilobits/Second", "Megabits/Second",
-            "Gigabits/Second", "Terabits/Second",
-            "Count/Second", "None",
+            "Seconds",
+            "Microseconds",
+            "Milliseconds",
+            "Bytes",
+            "Kilobytes",
+            "Megabytes",
+            "Gigabytes",
+            "Terabytes",
+            "Bits",
+            "Kilobits",
+            "Megabits",
+            "Gigabits",
+            "Terabits",
+            "Percent",
+            "Count",
+            "Bytes/Second",
+            "Kilobytes/Second",
+            "Megabytes/Second",
+            "Gigabytes/Second",
+            "Terabytes/Second",
+            "Bits/Second",
+            "Kilobits/Second",
+            "Megabits/Second",
+            "Gigabits/Second",
+            "Terabits/Second",
+            "Count/Second",
+            "None",
         }
         if v not in valid:
             raise ValueError(f"Invalid CloudWatch unit {v!r}")
@@ -68,6 +87,7 @@ class LogEvent(BaseModel):
 # ---------------------------------------------------------------------------
 # CloudWatch Metrics utilities
 # ---------------------------------------------------------------------------
+
 
 def put_metric(
     namespace: str,
@@ -142,6 +162,7 @@ def put_metrics(
 # CloudWatch Logs utilities
 # ---------------------------------------------------------------------------
 
+
 def create_log_group(
     log_group_name: str,
     region_name: str | None = None,
@@ -193,8 +214,7 @@ def create_log_stream(
         if exc.response["Error"]["Code"] == "ResourceAlreadyExistsException":
             return
         raise RuntimeError(
-            f"Failed to create log stream {log_stream_name!r} "
-            f"in {log_group_name!r}: {exc}"
+            f"Failed to create log stream {log_stream_name!r} in {log_group_name!r}: {exc}"
         ) from exc
 
 
@@ -219,9 +239,7 @@ def put_log_events(
         RuntimeError: If the put operation fails.
     """
     client = get_client("logs", region_name)
-    log_events = [
-        {"timestamp": e.timestamp, "message": e.message} for e in events
-    ]
+    log_events = [{"timestamp": e.timestamp, "message": e.message} for e in events]
     try:
         client.put_log_events(
             logGroupName=log_group_name,
@@ -230,8 +248,7 @@ def put_log_events(
         )
     except ClientError as exc:
         raise RuntimeError(
-            f"Failed to put log events to {log_group_name!r}/"
-            f"{log_stream_name!r}: {exc}"
+            f"Failed to put log events to {log_group_name!r}/{log_stream_name!r}: {exc}"
         ) from exc
 
 
@@ -275,8 +292,7 @@ def get_log_events(
         resp = client.get_log_events(**kwargs)
     except ClientError as exc:
         raise RuntimeError(
-            f"Failed to get log events from {log_group_name!r}/"
-            f"{log_stream_name!r}: {exc}"
+            f"Failed to get log events from {log_group_name!r}/{log_stream_name!r}: {exc}"
         ) from exc
 
     return [
@@ -288,6 +304,7 @@ def get_log_events(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def get_metric_statistics(
     namespace: str,
@@ -327,7 +344,8 @@ def get_metric_statistics(
         "StartTime": start_time,
         "EndTime": end_time,
         "Period": period,
-        "Statistics": statistics or ["Average", "Sum", "Maximum", "Minimum", "SampleCount"],
+        "Statistics": statistics
+        or ["Average", "Sum", "Maximum", "Minimum", "SampleCount"],
     }
     if dimensions:
         kwargs["Dimensions"] = [{"Name": d.name, "Value": d.value} for d in dimensions]
@@ -403,9 +421,7 @@ def create_alarm(
     try:
         client.put_metric_alarm(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"create_alarm failed for {alarm_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"create_alarm failed for {alarm_name!r}: {exc}") from exc
 
 
 def tail_log_stream(

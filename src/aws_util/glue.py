@@ -16,6 +16,7 @@ _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "TIMEOUT", "STOPPED", "ERROR"}
 # Models
 # ---------------------------------------------------------------------------
 
+
 class GlueJob(BaseModel):
     """Metadata for a Glue ETL job."""
 
@@ -60,6 +61,7 @@ class GlueJobRun(BaseModel):
 # Utilities
 # ---------------------------------------------------------------------------
 
+
 def start_job_run(
     job_name: str,
     arguments: dict[str, str] | None = None,
@@ -95,9 +97,7 @@ def start_job_run(
     try:
         resp = client.start_job_run(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to start Glue job {job_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to start Glue job {job_name!r}: {exc}") from exc
     return resp["JobRunId"]
 
 
@@ -149,9 +149,7 @@ def get_job(
     try:
         resp = client.get_job(JobName=job_name)
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_job failed for {job_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_job failed for {job_name!r}: {exc}") from exc
     job = resp["Job"]
     return GlueJob(
         job_name=job["Name"],
@@ -211,9 +209,7 @@ def list_job_runs(
         for page in paginator.paginate(JobName=job_name):
             runs.extend(_parse_run(r) for r in page.get("JobRuns", []))
     except ClientError as exc:
-        raise RuntimeError(
-            f"list_job_runs failed for {job_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"list_job_runs failed for {job_name!r}: {exc}") from exc
     return runs
 
 
@@ -255,6 +251,7 @@ def wait_for_job_run(
 # Complex utilities
 # ---------------------------------------------------------------------------
 
+
 def run_job_and_wait(
     job_name: str,
     arguments: dict[str, str] | None = None,
@@ -292,7 +289,8 @@ def run_job_and_wait(
         region_name=region_name,
     )
     return wait_for_job_run(
-        job_name, run_id,
+        job_name,
+        run_id,
         poll_interval=poll_interval,
         timeout=timeout,
         region_name=region_name,
@@ -326,6 +324,7 @@ def stop_job_run(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_run(run: dict) -> GlueJobRun:
     return GlueJobRun(

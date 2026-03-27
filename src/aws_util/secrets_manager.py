@@ -129,14 +129,16 @@ def list_secrets(
         paginator = client.get_paginator("list_secrets")
         for page in paginator.paginate(**kwargs):
             for s in page.get("SecretList", []):
-                secrets.append({
-                    "name": s["Name"],
-                    "arn": s["ARN"],
-                    "description": s.get("Description", ""),
-                    "last_changed_date": s.get("LastChangedDate"),
-                    "last_accessed_date": s.get("LastAccessedDate"),
-                    "rotation_enabled": s.get("RotationEnabled", False),
-                })
+                secrets.append(
+                    {
+                        "name": s["Name"],
+                        "arn": s["ARN"],
+                        "description": s.get("Description", ""),
+                        "last_changed_date": s.get("LastChangedDate"),
+                        "last_accessed_date": s.get("LastAccessedDate"),
+                        "rotation_enabled": s.get("RotationEnabled", False),
+                    }
+                )
     except ClientError as exc:
         raise RuntimeError(f"list_secrets failed: {exc}") from exc
     return secrets
@@ -222,9 +224,7 @@ def get_secret(
     try:
         resp = client.get_secret_value(SecretId=secret_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Error resolving secret {secret_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Error resolving secret {secret_id!r}: {exc}") from exc
 
     secret_str: str = (
         resp["SecretString"]
@@ -239,8 +239,7 @@ def get_secret(
         data: dict = json.loads(secret_str)
     except json.JSONDecodeError as exc:
         raise RuntimeError(
-            f"Secret {secret_id!r} is not valid JSON; "
-            f"cannot extract key {json_key!r}"
+            f"Secret {secret_id!r} is not valid JSON; cannot extract key {json_key!r}"
         ) from exc
 
     if json_key not in data:

@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class IAMRole(BaseModel):
     """Metadata for an IAM role."""
 
@@ -56,6 +57,7 @@ class IAMUser(BaseModel):
 # ---------------------------------------------------------------------------
 # Role utilities
 # ---------------------------------------------------------------------------
+
 
 def create_role(
     role_name: str,
@@ -216,6 +218,7 @@ def detach_role_policy(
 # Policy utilities
 # ---------------------------------------------------------------------------
 
+
 def create_policy(
     policy_name: str,
     policy_document: dict[str, Any],
@@ -350,6 +353,7 @@ def list_users(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_role(role: dict) -> IAMRole:
     return IAMRole(
         role_id=role["RoleId"],
@@ -379,6 +383,7 @@ def _parse_policy(policy: dict) -> IAMPolicy:
 # Complex utilities
 # ---------------------------------------------------------------------------
 
+
 def create_role_with_policies(
     role_name: str,
     trust_policy: dict[str, Any],
@@ -406,7 +411,9 @@ def create_role_with_policies(
     """
     import json
 
-    role = create_role(role_name, trust_policy, description=description, region_name=region_name)
+    role = create_role(
+        role_name, trust_policy, description=description, region_name=region_name
+    )
 
     for arn in managed_policy_arns or []:
         attach_role_policy(role_name, arn, region_name=region_name)
@@ -422,8 +429,7 @@ def create_role_with_policies(
                 )
             except ClientError as exc:
                 raise RuntimeError(
-                    f"Failed to put inline policy {policy_name!r} on role "
-                    f"{role_name!r}: {exc}"
+                    f"Failed to put inline policy {policy_name!r} on role {role_name!r}: {exc}"
                 ) from exc
 
     return role

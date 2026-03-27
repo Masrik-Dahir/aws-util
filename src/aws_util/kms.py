@@ -9,6 +9,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class EncryptResult(BaseModel):
     """Result of a KMS ``Encrypt`` call."""
 
@@ -36,6 +37,7 @@ class DataKey(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def encrypt(
     key_id: str,
@@ -67,9 +69,7 @@ def encrypt(
             EncryptionAlgorithm=encryption_algorithm,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to encrypt with KMS key {key_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to encrypt with KMS key {key_id!r}: {exc}") from exc
     return EncryptResult(
         ciphertext_blob=resp["CiphertextBlob"],
         key_id=resp["KeyId"],
@@ -152,6 +152,7 @@ def generate_data_key(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def envelope_encrypt(
     key_id: str,
@@ -274,7 +275,9 @@ def re_encrypt(
     return EncryptResult(
         ciphertext_blob=resp["CiphertextBlob"],
         key_id=resp["KeyId"],
-        encryption_algorithm=resp.get("DestinationEncryptionAlgorithm", "SYMMETRIC_DEFAULT"),
+        encryption_algorithm=resp.get(
+            "DestinationEncryptionAlgorithm", "SYMMETRIC_DEFAULT"
+        ),
     )
 
 

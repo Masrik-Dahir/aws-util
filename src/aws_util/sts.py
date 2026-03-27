@@ -11,6 +11,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class CallerIdentity(BaseModel):
     """The identity of the caller making the AWS request."""
 
@@ -35,6 +36,7 @@ class AssumedRoleCredentials(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def get_caller_identity(
     region_name: str | None = None,
@@ -113,9 +115,7 @@ def assume_role(
     try:
         resp = client.assume_role(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to assume role {role_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to assume role {role_arn!r}: {exc}") from exc
 
     creds = resp["Credentials"]
     return AssumedRoleCredentials(
@@ -129,6 +129,7 @@ def assume_role(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def assume_role_session(
     role_arn: str,

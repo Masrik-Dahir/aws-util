@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class InvokeResult(BaseModel):
     """Result of a Lambda ``Invoke`` call."""
 
@@ -31,6 +32,7 @@ class InvokeResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def invoke(
     function_name: str,
@@ -85,9 +87,7 @@ def invoke(
     try:
         resp = client.invoke(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to invoke Lambda {function_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to invoke Lambda {function_name!r}: {exc}") from exc
 
     raw_response = resp["Payload"].read()
     try:
@@ -96,6 +96,7 @@ def invoke(
         parsed_payload = raw_response.decode("utf-8")
 
     import base64
+
     log_result: str | None = None
     if resp.get("LogResult"):
         log_result = base64.b64decode(resp["LogResult"]).decode("utf-8")
@@ -137,6 +138,7 @@ def invoke_async(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def invoke_with_retry(
     function_name: str,
@@ -183,7 +185,7 @@ def invoke_with_retry(
         except RuntimeError as exc:
             last_exc = exc
             if attempt < max_retries:
-                sleep_time = backoff_base * (2 ** attempt)
+                sleep_time = backoff_base * (2**attempt)
                 _time.sleep(sleep_time)
 
     raise RuntimeError(

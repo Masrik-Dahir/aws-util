@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class SQSMessage(BaseModel):
     """A message received from an SQS queue."""
 
@@ -52,6 +53,7 @@ class SendMessageResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def get_queue_url(
     queue_name: str,
@@ -120,9 +122,7 @@ def send_message(
     try:
         resp = client.send_message(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to send message to {queue_url!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to send message to {queue_url!r}: {exc}") from exc
     return SendMessageResult(
         message_id=resp["MessageId"],
         sequence_number=resp.get("SequenceNumber"),
@@ -169,9 +169,7 @@ def send_batch(
 
     if resp.get("Failed"):
         failures = [f["Message"] for f in resp["Failed"]]
-        raise RuntimeError(
-            f"Batch send partially failed for {queue_url!r}: {failures}"
-        )
+        raise RuntimeError(f"Batch send partially failed for {queue_url!r}: {failures}")
 
     return [
         SendMessageResult(
@@ -278,8 +276,7 @@ def delete_batch(
 
     client = get_client("sqs", region_name)
     entries = [
-        {"Id": str(i), "ReceiptHandle": rh}
-        for i, rh in enumerate(receipt_handles)
+        {"Id": str(i), "ReceiptHandle": rh} for i, rh in enumerate(receipt_handles)
     ]
     try:
         resp = client.delete_message_batch(QueueUrl=queue_url, Entries=entries)
@@ -314,14 +311,13 @@ def purge_queue(
     try:
         client.purge_queue(QueueUrl=queue_url)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to purge queue {queue_url!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to purge queue {queue_url!r}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def drain_queue(
     queue_url: str,
@@ -417,6 +413,7 @@ def replay_dlq(
     Raises:
         RuntimeError: If any receive, send, or delete call fails.
     """
+
     def _replay(msg: SQSMessage) -> None:
         send_message(target_url, msg.body, region_name=region_name)
 
@@ -498,7 +495,9 @@ def wait_for_message(
         for msg in messages:
             if predicate is None or predicate(msg):
                 if delete_on_match:
-                    delete_message(queue_url, msg.receipt_handle, region_name=region_name)
+                    delete_message(
+                        queue_url, msg.receipt_handle, region_name=region_name
+                    )
                 return msg
         _time.sleep(max(0, poll_interval - 1))
     return None

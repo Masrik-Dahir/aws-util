@@ -11,6 +11,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class ACMCertificate(BaseModel):
     """Metadata for an ACM certificate."""
 
@@ -31,6 +32,7 @@ class ACMCertificate(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def list_certificates(
     status_filter: list[str] | None = None,
@@ -103,9 +105,11 @@ def describe_certificate(
         status=cert.get("Status", ""),
         type=cert.get("Type", "AMAZON_ISSUED"),
         subject_alternative_names=cert.get("SubjectAlternativeNames", []),
-        validation_method=cert.get("DomainValidationOptions", [{}])[0].get(
-            "ValidationMethod"
-        ) if cert.get("DomainValidationOptions") else None,
+        validation_method=(
+            cert.get("DomainValidationOptions", [{}])[0].get("ValidationMethod")
+            if cert.get("DomainValidationOptions")
+            else None
+        ),
         issued_at=cert.get("IssuedAt"),
         not_after=cert.get("NotAfter"),
         key_algorithm=cert.get("KeyAlgorithm"),
@@ -205,6 +209,7 @@ def get_certificate_pem(
 # Complex utilities
 # ---------------------------------------------------------------------------
 
+
 def wait_for_certificate(
     certificate_arn: str,
     poll_interval: float = 15.0,
@@ -241,15 +246,12 @@ def wait_for_certificate(
     while True:
         cert = describe_certificate(certificate_arn, region_name=region_name)
         if cert is None:
-            raise RuntimeError(
-                f"Certificate {certificate_arn!r} not found during wait"
-            )
+            raise RuntimeError(f"Certificate {certificate_arn!r} not found during wait")
         if cert.status == "ISSUED":
             return cert
         if cert.status in _FAILED_STATUSES:
             raise RuntimeError(
-                f"Certificate {certificate_arn!r} reached terminal status "
-                f"{cert.status!r}"
+                f"Certificate {certificate_arn!r} reached terminal status {cert.status!r}"
             )
         if _time.monotonic() >= deadline:
             raise TimeoutError(

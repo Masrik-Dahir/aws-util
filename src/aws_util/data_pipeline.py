@@ -4,6 +4,7 @@ DynamoDB, and SQS.
 Provides high-level functions for common ETL and streaming patterns where
 multiple AWS services need to be coordinated in sequence.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,6 +20,7 @@ from aws_util._client import get_client
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 
 class GlueJobRun(BaseModel):
     """Outcome of a Glue job execution triggered by :func:`run_glue_job`."""
@@ -57,6 +59,7 @@ class PipelineResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Glue helpers
 # ---------------------------------------------------------------------------
+
 
 def run_glue_job(
     job_name: str,
@@ -103,8 +106,7 @@ def run_glue_job(
     while True:
         if time.monotonic() > deadline:
             raise RuntimeError(
-                f"Glue job {job_name!r} run {run_id!r} timed out after "
-                f"{timeout_minutes} minutes."
+                f"Glue job {job_name!r} run {run_id!r} timed out after {timeout_minutes} minutes."
             )
         try:
             run_resp = client.get_job_run(JobName=job_name, RunId=run_id)
@@ -131,6 +133,7 @@ def run_glue_job(
 # ---------------------------------------------------------------------------
 # Athena helpers
 # ---------------------------------------------------------------------------
+
 
 def run_athena_query(
     query: str,
@@ -182,9 +185,7 @@ def run_athena_query(
         try:
             status_resp = client.get_query_execution(QueryExecutionId=qid)
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to poll Athena query {qid!r}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to poll Athena query {qid!r}: {exc}") from exc
 
         execution = status_resp["QueryExecution"]
         state: str = execution["Status"]["State"]
@@ -249,6 +250,7 @@ def fetch_athena_results(
 # ---------------------------------------------------------------------------
 # Multi-service pipelines
 # ---------------------------------------------------------------------------
+
 
 def run_glue_then_query(
     glue_job_name: str,
@@ -389,22 +391,19 @@ def s3_json_to_dynamodb(
         obj = s3.get_object(Bucket=bucket, Key=key)
         raw = obj["Body"].read().decode("utf-8")
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to read s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
 
     try:
         items: list[dict[str, Any]] = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"s3://{bucket}/{key} is not valid JSON: {exc}"
-        ) from exc
+        raise ValueError(f"s3://{bucket}/{key} is not valid JSON: {exc}") from exc
 
     if not isinstance(items, list):
         raise ValueError(f"s3://{bucket}/{key} must be a JSON array.")
 
     dynamo = get_client("dynamodb", region_name)
     from boto3.dynamodb.types import TypeSerializer  # type: ignore[import]
+
     serializer = TypeSerializer()
 
     written = 0
@@ -413,7 +412,11 @@ def s3_json_to_dynamodb(
         chunk = items[i : i + chunk_size]
         request_items = {
             table_name: [
-                {"PutRequest": {"Item": {k: serializer.serialize(v) for k, v in item.items()}}}
+                {
+                    "PutRequest": {
+                        "Item": {k: serializer.serialize(v) for k, v in item.items()}
+                    }
+                }
                 for item in chunk
             ]
         }
@@ -456,9 +459,7 @@ def s3_jsonl_to_sqs(
         obj = s3.get_object(Bucket=bucket, Key=key)
         content = obj["Body"].read().decode("utf-8")
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to read s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
 
     lines = [ln for ln in content.splitlines() if ln.strip()]
     sqs = get_client("sqs", region_name)
@@ -471,9 +472,7 @@ def s3_jsonl_to_sqs(
         try:
             resp = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to send batch to {queue_url!r}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to send batch to {queue_url!r}: {exc}") from exc
         if resp.get("Failed"):
             failures = [f["Message"] for f in resp["Failed"]]
             raise RuntimeError(
@@ -606,7 +605,10 @@ def kinesis_to_s3_snapshot(
         return len(records_collected)
 
     with ThreadPoolExecutor(max_workers=min(len(shards), 10)) as pool:
-        futures = {pool.submit(_drain_shard, shard["ShardId"]): shard["ShardId"] for shard in shards}
+        futures = {
+            pool.submit(_drain_shard, shard["ShardId"]): shard["ShardId"]
+            for shard in shards
+        }
         for future in as_completed(futures):
             total_written += future.result()
 
@@ -662,7 +664,12 @@ def parallel_export(
             )
             return {"label": label, "output_key": full_key, "rows": rows, "error": None}
         except Exception as exc:
-            return {"label": label, "output_key": full_key, "rows": 0, "error": str(exc)}
+            return {
+                "label": label,
+                "output_key": full_key,
+                "rows": 0,
+                "error": str(exc),
+            }
 
     results: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=min(len(queries), 10)) as pool:

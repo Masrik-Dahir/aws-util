@@ -11,6 +11,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class HostedZone(BaseModel):
     """A Route 53 hosted zone."""
 
@@ -39,6 +40,7 @@ class ResourceRecord(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def list_hosted_zones(
     region_name: str | None = None,
@@ -143,9 +145,7 @@ def list_records(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(
-            f"list_records failed for zone {zone_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"list_records failed for zone {zone_id!r}: {exc}") from exc
     return records
 
 
@@ -259,6 +259,7 @@ def delete_record(
 # Complex utilities
 # ---------------------------------------------------------------------------
 
+
 def wait_for_change(
     change_id: str,
     timeout: float = 300.0,
@@ -338,15 +339,17 @@ def bulk_upsert_records(
         name = rec["name"]
         if not name.endswith("."):
             name += "."
-        changes.append({
-            "Action": "UPSERT",
-            "ResourceRecordSet": {
-                "Name": name,
-                "Type": rec["record_type"],
-                "TTL": rec.get("ttl", 300),
-                "ResourceRecords": [{"Value": v} for v in rec["values"]],
-            },
-        })
+        changes.append(
+            {
+                "Action": "UPSERT",
+                "ResourceRecordSet": {
+                    "Name": name,
+                    "Type": rec["record_type"],
+                    "TTL": rec.get("ttl", 300),
+                    "ResourceRecords": [{"Value": v} for v in rec["values"]],
+                },
+            }
+        )
     try:
         resp = client.change_resource_record_sets(
             HostedZoneId=zone_id,

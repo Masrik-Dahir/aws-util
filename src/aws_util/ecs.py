@@ -11,6 +11,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class ECSTask(BaseModel):
     """Metadata for an ECS task."""
 
@@ -59,6 +60,7 @@ class ECSTaskDefinition(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def list_clusters(region_name: str | None = None) -> list[str]:
     """List all ECS cluster ARNs in the account.
@@ -134,14 +136,10 @@ def run_task(
     try:
         resp = client.run_task(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"run_task failed on cluster {cluster!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"run_task failed on cluster {cluster!r}: {exc}") from exc
 
     if resp.get("failures"):
-        raise RuntimeError(
-            f"ECS run_task failures: {resp['failures']}"
-        )
+        raise RuntimeError(f"ECS run_task failures: {resp['failures']}")
     return [_parse_task(t) for t in resp.get("tasks", [])]
 
 
@@ -166,9 +164,7 @@ def stop_task(
     try:
         client.stop_task(cluster=cluster, task=task_arn, reason=reason)
     except ClientError as exc:
-        raise RuntimeError(
-            f"stop_task failed for {task_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"stop_task failed for {task_arn!r}: {exc}") from exc
 
 
 def describe_tasks(
@@ -369,6 +365,7 @@ def describe_task_definition(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_task(task: dict) -> ECSTask:
     return ECSTask(
         task_arn=task["taskArn"],
@@ -386,6 +383,7 @@ def _parse_task(task: dict) -> ECSTask:
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def wait_for_task(
     cluster: str,
@@ -471,7 +469,9 @@ def run_task_and_wait(
         count=1,
         region_name=region_name,
     )
-    return wait_for_task(cluster, tasks[0].task_arn, timeout=timeout, region_name=region_name)
+    return wait_for_task(
+        cluster, tasks[0].task_arn, timeout=timeout, region_name=region_name
+    )
 
 
 def wait_for_service_stable(

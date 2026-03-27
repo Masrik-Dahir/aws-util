@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class BedrockModel(BaseModel):
     """A foundation model available in Amazon Bedrock."""
 
@@ -38,6 +39,7 @@ class InvokeModelResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def invoke_model(
     model_id: str,
@@ -176,6 +178,7 @@ def invoke_titan_text(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def chat(
     messages: list[dict[str, str]],

@@ -48,21 +48,24 @@ select = ["E", "F", "I"]
 ignore = ["E501"] # Ignore line-length if you prefer
 
 [tool.taskipy.tasks]
-install      = "pip install -e .[dev]"
-clean        = "python -c \"import shutil, glob; [shutil.rmtree(p, ignore_errors=True) for p in ['dist','build']+glob.glob('src/*.egg-info')]\""
-build        = "task clean && python -m build"
-bump         = "python -c \"import re; from pathlib import Path; p = Path('pyproject.toml'); content = p.read_text(); v = re.search(r'version = \\\"(\\d+)\\.(\\d+)\\.(\\d+)\\\"', content); major, minor, patch = map(int, v.groups()); new_v = f'{major+1}.0.0' if 'major' in '$npm_config_argv' or 'major' in '{{args}}' else f'{major}.{minor+1}.0'; p.write_text(re.sub(r'version = \\\".*?\\\"', f'version = \\\"{new_v}\\\"', content)); print(f'Bumped to {new_v}')\""
-publish       = "task bump minor && task build && python -m twine upload dist/*"
+install         = "pip install -e .[dev]"
+clean           = "python -c \"import shutil, glob; [shutil.rmtree(p, ignore_errors=True) for p in ['dist','build']+glob.glob('src/*.egg-info')]\""
+build           = "task clean && python -m build"
+bump            = "python -c \"import re; from pathlib import Path; p = Path('pyproject.toml'); content = p.read_text(); v = re.search(r'version = \\\"(\\d+)\\.(\\d+)\\.(\\d+)\\\"', content); major, minor, patch = map(int, v.groups()); new_v = f'{major+1}.0.0' if 'major' in '$npm_config_argv' or 'major' in '{{args}}' else f'{major}.{minor+1}.0'; p.write_text(re.sub(r'version = \\\".*?\\\"', f'version = \\\"{new_v}\\\"', content)); print(f'Bumped to {new_v}')\""
+publish         = "task bump minor && task build && python -m twine upload dist/*"
 "publish:major" = "task bump major && task build && python -m twine upload dist/*"
 "publish:minor" = "task publish"
-publish-test = "task build && python -m twine upload --repository testpypi dist/*"
-test         = "pytest tests/ -v"
-test-cov     = "pytest tests/ -v --cov=src/aws_util --cov-report=term-missing"
-lint         = "ruff check --fix src/"
-format       = "black src/"
-typecheck    = "mypy src/aws_util/"
-release      = "task lint && task test && task publish"
-coverage      = "pytest --cov=src/ --cov-report=term-missing"
+publish-test    = "task build && python -m twine upload --repository testpypi dist/*"
+test            = "pytest tests/ -v"
+test-cov        = "pytest tests/ -v --cov=src/aws_util --cov-report=term-missing"
+lint            = "ruff check --fix src/ && ruff format src/"
+format          = "black src/"
+typecheck       = "mypy src/aws_util/"
+coverage        = "pytest --cov=src/ --cov-report=term-missing --cov-fail-under=90"
+prepare         = "task lint && task format && task test && task coverage && task typecheck"
+release         = "task prepare && task publish"
+"release:major" = "task prepare && task publish:major"
+"release:minor" = "task release"
 
 [tool.setuptools.packages.find]
 where = ["src"]

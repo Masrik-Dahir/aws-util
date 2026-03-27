@@ -13,6 +13,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class KinesisRecord(BaseModel):
     """Result of a single Kinesis ``PutRecord`` call."""
 
@@ -47,6 +48,7 @@ class KinesisStream(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def put_record(
     stream_name: str,
@@ -226,9 +228,7 @@ def get_records(
             ShardId=shard_id,
             ShardIteratorType=shard_iterator_type,
         )
-        resp = client.get_records(
-            ShardIterator=iter_resp["ShardIterator"], Limit=limit
-        )
+        resp = client.get_records(ShardIterator=iter_resp["ShardIterator"], Limit=limit)
     except ClientError as exc:
         raise RuntimeError(
             f"get_records failed for {stream_name!r}/{shard_id!r}: {exc}"
@@ -246,9 +246,7 @@ def get_records(
                 "data": decoded,
                 "sequence_number": rec["SequenceNumber"],
                 "partition_key": rec["PartitionKey"],
-                "approximate_arrival_timestamp": rec.get(
-                    "ApproximateArrivalTimestamp"
-                ),
+                "approximate_arrival_timestamp": rec.get("ApproximateArrivalTimestamp"),
             }
         )
     return result
@@ -257,6 +255,7 @@ def get_records(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _encode_data(data: bytes | str | dict | list) -> bytes:
     if isinstance(data, bytes):
@@ -269,6 +268,7 @@ def _encode_data(data: bytes | str | dict | list) -> bytes:
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def consume_stream(
     stream_name: str,
@@ -310,18 +310,14 @@ def consume_stream(
     try:
         client.describe_stream_summary(StreamName=stream_name)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to describe stream {stream_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to describe stream {stream_name!r}: {exc}") from exc
 
     shard_ids: list[str] = []
     try:
         shard_resp = client.list_shards(StreamName=stream_name)
         shard_ids = [s["ShardId"] for s in shard_resp.get("Shards", [])]
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to list shards for {stream_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to list shards for {stream_name!r}: {exc}") from exc
 
     total_processed = 0
     deadline = _time.monotonic() + duration_seconds
@@ -350,14 +346,16 @@ def consume_stream(
                         decoded = json.loads(raw)
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         decoded = raw
-                    handler({
-                        "data": decoded,
-                        "sequence_number": rec["SequenceNumber"],
-                        "partition_key": rec["PartitionKey"],
-                        "approximate_arrival_timestamp": rec.get(
-                            "ApproximateArrivalTimestamp"
-                        ),
-                    })
+                    handler(
+                        {
+                            "data": decoded,
+                            "sequence_number": rec["SequenceNumber"],
+                            "partition_key": rec["PartitionKey"],
+                            "approximate_arrival_timestamp": rec.get(
+                                "ApproximateArrivalTimestamp"
+                            ),
+                        }
+                    )
                     count += 1
 
                 shard_iter = rec_resp.get("NextShardIterator")

@@ -111,9 +111,7 @@ def put_parameter(
     try:
         client.put_parameter(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to put SSM parameter {name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to put SSM parameter {name!r}: {exc}") from exc
 
 
 def delete_parameter(
@@ -133,9 +131,7 @@ def delete_parameter(
     try:
         client.delete_parameter(Name=name)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete SSM parameter {name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete SSM parameter {name!r}: {exc}") from exc
 
 
 def get_parameter(
@@ -169,6 +165,4 @@ def get_parameter(
         resp = client.get_parameter(Name=name, WithDecryption=with_decryption)
         return resp["Parameter"]["Value"]
     except ClientError as exc:
-        raise RuntimeError(
-            f"Error resolving SSM parameter {name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Error resolving SSM parameter {name!r}: {exc}") from exc

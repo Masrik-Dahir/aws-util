@@ -15,6 +15,7 @@ _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "PARTIAL_SUCCESS"}
 # Models
 # ---------------------------------------------------------------------------
 
+
 class TextractBlock(BaseModel):
     """A single block in a Textract response (page, line, word, table cell, etc.)."""
 
@@ -50,6 +51,7 @@ class TextractJobResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def detect_document_text(
     document_bytes: bytes | None = None,
@@ -237,6 +239,7 @@ def wait_for_document_text_detection(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def extract_text(
     document_bytes: bytes | None = None,
@@ -440,6 +443,7 @@ def extract_all(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _resolve_document(
     document_bytes: bytes | None,
     s3_bucket: str | None,
@@ -449,9 +453,7 @@ def _resolve_document(
         return {"Bytes": document_bytes}
     if s3_bucket and s3_key:
         return {"S3Object": {"Bucket": s3_bucket, "Name": s3_key}}
-    raise ValueError(
-        "Provide either document_bytes or both s3_bucket and s3_key"
-    )
+    raise ValueError("Provide either document_bytes or both s3_bucket and s3_key")
 
 
 def _parse_blocks(raw: list[dict]) -> list[TextractBlock]:

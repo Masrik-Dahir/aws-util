@@ -4,6 +4,7 @@ Provides high-level helpers for sending alerts and notifications via multiple
 AWS channels simultaneously, including a decorator for automatic exception
 reporting.
 """
+
 from __future__ import annotations
 
 import functools
@@ -20,6 +21,7 @@ from aws_util._client import get_client
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 
 class NotificationResult(BaseModel):
     """Result of a single notification delivery attempt."""
@@ -59,6 +61,7 @@ class BroadcastResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _publish_sns(
     topic_arn: str,
@@ -156,6 +159,7 @@ def _enqueue_sqs(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def send_alert(
     subject: str,
     message: str,
@@ -199,17 +203,13 @@ def send_alert(
     tasks: list[Callable[[], list[NotificationResult] | NotificationResult]] = []
 
     if sns_topic_arn:
-        tasks.append(
-            lambda: _publish_sns(sns_topic_arn, subject, message, region_name)
-        )
+        tasks.append(lambda: _publish_sns(sns_topic_arn, subject, message, region_name))
     if to_emails and from_email:
         tasks.append(
             lambda: _send_ses(from_email, to_emails, subject, message, region_name)
         )
     if queue_url:
-        tasks.append(
-            lambda: _enqueue_sqs(queue_url, subject, message, region_name)
-        )
+        tasks.append(lambda: _enqueue_sqs(queue_url, subject, message, region_name))
 
     all_results: list[NotificationResult] = []
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
@@ -342,7 +342,11 @@ def broadcast(
         _group = group
         tasks.append(
             lambda g=_group: _send_ses(
-                from_email, g, subject, message, region_name  # type: ignore[arg-type]
+                from_email,
+                g,
+                subject,
+                message,
+                region_name,  # type: ignore[arg-type]
             )
         )
 
@@ -402,9 +406,7 @@ def resolve_and_notify(
     from aws_util.secrets_manager import get_secret
 
     body = (
-        message_template.format(**template_vars)
-        if template_vars
-        else message_template
+        message_template.format(**template_vars) if template_vars else message_template
     )
 
     sns_topic_arn: str | None = None

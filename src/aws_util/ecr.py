@@ -11,6 +11,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class ECRRepository(BaseModel):
     """Metadata for an ECR repository."""
 
@@ -51,6 +52,7 @@ class ECRAuthToken(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def get_auth_token(
     registry_ids: list[str] | None = None,
@@ -132,9 +134,7 @@ def list_repositories(
                         repository_uri=repo["repositoryUri"],
                         registry_id=repo["registryId"],
                         created_at=repo.get("createdAt"),
-                        image_tag_mutability=repo.get(
-                            "imageTagMutability", "MUTABLE"
-                        ),
+                        image_tag_mutability=repo.get("imageTagMutability", "MUTABLE"),
                     )
                 )
     except ClientError as exc:
@@ -236,9 +236,7 @@ def list_images(
     try:
         for i in range(0, len(image_ids), batch_size):
             batch = image_ids[i : i + batch_size]
-            desc_resp = client.describe_images(
-                imageIds=batch, **desc_kwargs
-            )
+            desc_resp = client.describe_images(imageIds=batch, **desc_kwargs)
             for detail in desc_resp.get("imageDetails", []):
                 images.append(
                     ECRImage(
@@ -260,6 +258,7 @@ def list_images(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def ensure_repository(
     repository_name: str,
@@ -326,9 +325,7 @@ def get_latest_image_tag(
     Raises:
         RuntimeError: If the image list call fails.
     """
-    images = list_images(
-        repository_name, tag_status="TAGGED", region_name=region_name
-    )
+    images = list_images(repository_name, tag_status="TAGGED", region_name=region_name)
     tagged = [img for img in images if img.image_pushed_at and img.image_tags]
     if not tagged:
         return None

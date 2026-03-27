@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class EC2Instance(BaseModel):
     """Metadata for a single EC2 instance."""
 
@@ -55,6 +56,7 @@ class SecurityGroup(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_tags(tag_list: list[dict]) -> dict[str, str]:
     return {t["Key"]: t["Value"] for t in (tag_list or [])}
 
@@ -76,6 +78,7 @@ def _parse_instance(inst: dict) -> EC2Instance:
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def describe_instances(
     instance_ids: list[str] | None = None,
@@ -146,9 +149,7 @@ def start_instances(
     try:
         client.start_instances(InstanceIds=instance_ids)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to start instances {instance_ids}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to start instances {instance_ids}: {exc}") from exc
 
 
 def stop_instances(
@@ -171,9 +172,7 @@ def stop_instances(
     try:
         client.stop_instances(InstanceIds=instance_ids, Force=force)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to stop instances {instance_ids}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to stop instances {instance_ids}: {exc}") from exc
 
 
 def reboot_instances(
@@ -193,9 +192,7 @@ def reboot_instances(
     try:
         client.reboot_instances(InstanceIds=instance_ids)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to reboot instances {instance_ids}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to reboot instances {instance_ids}: {exc}") from exc
 
 
 def terminate_instances(
@@ -347,6 +344,7 @@ def describe_security_groups(
 # Complex utilities
 # ---------------------------------------------------------------------------
 
+
 def wait_for_instance_state(
     instance_id: str,
     target_state: str,
@@ -428,8 +426,10 @@ def get_latest_ami(
         The most recent :class:`EC2Image`, or ``None`` if no match found.
     """
     images = describe_images(
-        filters=[{"Name": "name", "Values": [name_filter]},
-                 {"Name": "state", "Values": ["available"]}],
+        filters=[
+            {"Name": "name", "Values": [name_filter]},
+            {"Name": "state", "Values": ["available"]},
+        ],
         owners=owners or ["self"],
         region_name=region_name,
     )

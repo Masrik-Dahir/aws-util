@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class RDSInstance(BaseModel):
     """Metadata for an RDS DB instance."""
 
@@ -46,6 +47,7 @@ class RDSSnapshot(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def describe_db_instances(
     db_instance_ids: list[str] | None = None,
@@ -227,9 +229,7 @@ def delete_db_snapshot(
     try:
         client.delete_db_snapshot(DBSnapshotIdentifier=snapshot_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete snapshot {snapshot_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete snapshot {snapshot_id!r}: {exc}") from exc
 
 
 def describe_db_snapshots(
@@ -279,6 +279,7 @@ def describe_db_snapshots(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def wait_for_db_instance(
     db_instance_id: str,
@@ -351,9 +352,7 @@ def wait_for_snapshot(
     while True:
         client = get_client("rds", region_name)
         try:
-            resp = client.describe_db_snapshots(
-                DBSnapshotIdentifier=snapshot_id
-            )
+            resp = client.describe_db_snapshots(DBSnapshotIdentifier=snapshot_id)
         except ClientError as exc:
             raise RuntimeError(
                 f"describe snapshot {snapshot_id!r} failed: {exc}"
@@ -374,8 +373,7 @@ def wait_for_snapshot(
             )
         if _time.monotonic() >= deadline:
             raise TimeoutError(
-                f"Snapshot {snapshot_id!r} did not reach status "
-                f"{target_status!r} within {timeout}s"
+                f"Snapshot {snapshot_id!r} did not reach status {target_status!r} within {timeout}s"
             )
         _time.sleep(poll_interval)
 
@@ -417,9 +415,7 @@ def restore_db_from_snapshot(
             PubliclyAccessible=publicly_accessible,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"restore_db_from_snapshot failed: {exc}"
-        ) from exc
+        raise RuntimeError(f"restore_db_from_snapshot failed: {exc}") from exc
     db = resp["DBInstance"]
     return RDSInstance(
         db_instance_id=db["DBInstanceIdentifier"],

@@ -4,6 +4,7 @@ Combines :mod:`aws_util.parameter_store` and :mod:`aws_util.secrets_manager`
 into higher-level helpers for the common pattern of loading all app settings
 at startup.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 
 class AppConfig(BaseModel):
     """A merged application configuration loaded from SSM and Secrets Manager.
@@ -44,6 +46,7 @@ class AppConfig(BaseModel):
 # Loaders
 # ---------------------------------------------------------------------------
 
+
 def load_config_from_ssm(
     path: str,
     strip_prefix: bool = True,
@@ -73,8 +76,7 @@ def load_config_from_ssm(
         return raw
     prefix = path.rstrip("/") + "/"
     return {
-        (k[len(prefix):] if k.startswith(prefix) else k): v
-        for k, v in raw.items()
+        (k[len(prefix) :] if k.startswith(prefix) else k): v for k, v in raw.items()
     }
 
 
@@ -101,9 +103,7 @@ def load_config_from_secret(
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Secret {secret_name!r} is not valid JSON: {exc}"
-        ) from exc
+        raise ValueError(f"Secret {secret_name!r} is not valid JSON: {exc}") from exc
 
 
 def load_app_config(
@@ -141,9 +141,7 @@ def load_app_config(
                 n, region_name=region_name
             )
     if ssm_prefix:
-        tasks["ssm"] = lambda: load_config_from_ssm(
-            ssm_prefix, region_name=region_name
-        )
+        tasks["ssm"] = lambda: load_config_from_ssm(ssm_prefix, region_name=region_name)
 
     results: dict[str, dict] = {}
     if tasks:
@@ -223,9 +221,7 @@ def get_db_credentials(
     creds = load_config_from_secret(secret_name, region_name=region_name)
     missing = [k for k in ("username", "password") if k not in creds]
     if missing:
-        raise ValueError(
-            f"Secret {secret_name!r} is missing required keys: {missing}"
-        )
+        raise ValueError(f"Secret {secret_name!r} is missing required keys: {missing}")
     return creds
 
 

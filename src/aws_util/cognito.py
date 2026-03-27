@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class CognitoUser(BaseModel):
     """A Cognito user pool user."""
 
@@ -53,6 +54,7 @@ class AuthResult(BaseModel):
 # Utilities
 # ---------------------------------------------------------------------------
 
+
 def admin_create_user(
     user_pool_id: str,
     username: str,
@@ -79,9 +81,7 @@ def admin_create_user(
         RuntimeError: If user creation fails.
     """
     client = get_client("cognito-idp", region_name)
-    user_attrs = [
-        {"Name": k, "Value": v} for k, v in (attributes or {}).items()
-    ]
+    user_attrs = [{"Name": k, "Value": v} for k, v in (attributes or {}).items()]
     kwargs: dict[str, Any] = {
         "UserPoolId": user_pool_id,
         "Username": username,
@@ -117,9 +117,7 @@ def admin_get_user(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "UserNotFoundException":
             return None
-        raise RuntimeError(
-            f"admin_get_user failed for {username!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"admin_get_user failed for {username!r}: {exc}") from exc
     attrs = {a["Name"]: a["Value"] for a in resp.get("UserAttributes", [])}
     return CognitoUser(
         username=resp["Username"],
@@ -284,7 +282,9 @@ def list_users(
             for user in page.get("Users", []):
                 users.append(_parse_user(user))
     except ClientError as exc:
-        raise RuntimeError(f"list_users failed for pool {user_pool_id!r}: {exc}") from exc
+        raise RuntimeError(
+            f"list_users failed for pool {user_pool_id!r}: {exc}"
+        ) from exc
     return users
 
 
@@ -368,6 +368,7 @@ def list_user_pools(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_user(user: dict) -> CognitoUser:
     attrs = {a["Name"]: a["Value"] for a in user.get("Attributes", [])}
     return CognitoUser(
@@ -383,6 +384,7 @@ def _parse_user(user: dict) -> CognitoUser:
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def get_or_create_user(
     user_pool_id: str,
@@ -475,9 +477,7 @@ def reset_user_password(
     """
     client = get_client("cognito-idp", region_name)
     try:
-        client.admin_reset_user_password(
-            UserPoolId=user_pool_id, Username=username
-        )
+        client.admin_reset_user_password(UserPoolId=user_pool_id, Username=username)
     except ClientError as exc:
         raise RuntimeError(
             f"reset_user_password failed for {username!r}: {exc}"

@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class PublishResult(BaseModel):
     """Result of a successful SNS ``Publish`` call."""
 
@@ -24,6 +25,7 @@ class PublishResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def publish(
     topic_arn: str,
@@ -53,9 +55,7 @@ def publish(
         RuntimeError: If the publish call fails.
     """
     client = get_client("sns", region_name)
-    raw_message = (
-        json.dumps(message) if isinstance(message, (dict, list)) else message
-    )
+    raw_message = json.dumps(message) if isinstance(message, (dict, list)) else message
     kwargs: dict[str, Any] = {
         "TopicArn": topic_arn,
         "Message": raw_message,
@@ -70,9 +70,7 @@ def publish(
     try:
         resp = client.publish(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to publish to {topic_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to publish to {topic_arn!r}: {exc}") from exc
     return PublishResult(
         message_id=resp["MessageId"],
         sequence_number=resp.get("SequenceNumber"),
@@ -111,11 +109,11 @@ def publish_batch(
         for i, m in enumerate(messages)
     ]
     try:
-        resp = client.publish_batch(TopicArn=topic_arn, PublishBatchRequestEntries=entries)
+        resp = client.publish_batch(
+            TopicArn=topic_arn, PublishBatchRequestEntries=entries
+        )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to batch-publish to {topic_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to batch-publish to {topic_arn!r}: {exc}") from exc
 
     if resp.get("Failed"):
         failures = [f.get("Message", f.get("Code")) for f in resp["Failed"]]
@@ -135,6 +133,7 @@ def publish_batch(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def publish_fan_out(
     topic_arns: list[str],

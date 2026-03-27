@@ -11,15 +11,23 @@ from pydantic import BaseModel, ConfigDict
 from aws_util._client import get_client
 
 _TERMINAL_STATUSES = {
-    "CREATE_COMPLETE", "CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED",
-    "UPDATE_COMPLETE", "UPDATE_FAILED", "UPDATE_ROLLBACK_COMPLETE",
-    "UPDATE_ROLLBACK_FAILED", "DELETE_COMPLETE", "DELETE_FAILED",
+    "CREATE_COMPLETE",
+    "CREATE_FAILED",
+    "ROLLBACK_COMPLETE",
+    "ROLLBACK_FAILED",
+    "UPDATE_COMPLETE",
+    "UPDATE_FAILED",
+    "UPDATE_ROLLBACK_COMPLETE",
+    "UPDATE_ROLLBACK_FAILED",
+    "DELETE_COMPLETE",
+    "DELETE_FAILED",
 }
 
 
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 
 class CFNStack(BaseModel):
     """A CloudFormation stack."""
@@ -45,13 +53,16 @@ class CFNStack(BaseModel):
     def is_healthy(self) -> bool:
         """``True`` if the stack completed successfully."""
         return self.status in {
-            "CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"
+            "CREATE_COMPLETE",
+            "UPDATE_COMPLETE",
+            "UPDATE_ROLLBACK_COMPLETE",
         }
 
 
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def describe_stack(
     stack_name: str,
@@ -75,9 +86,7 @@ def describe_stack(
     except ClientError as exc:
         if "does not exist" in str(exc):
             return None
-        raise RuntimeError(
-            f"describe_stack failed for {stack_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"describe_stack failed for {stack_name!r}: {exc}") from exc
     stacks = resp.get("Stacks", [])
     return _parse_stack(stacks[0]) if stacks else None
 
@@ -101,15 +110,21 @@ def list_stacks(
     """
     client = get_client("cloudformation", region_name)
     default_filter = [
-        "CREATE_IN_PROGRESS", "CREATE_FAILED", "CREATE_COMPLETE",
-        "ROLLBACK_IN_PROGRESS", "ROLLBACK_FAILED", "ROLLBACK_COMPLETE",
-        "UPDATE_IN_PROGRESS", "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS",
-        "UPDATE_COMPLETE", "UPDATE_FAILED", "UPDATE_ROLLBACK_IN_PROGRESS",
-        "UPDATE_ROLLBACK_FAILED", "UPDATE_ROLLBACK_COMPLETE",
+        "CREATE_IN_PROGRESS",
+        "CREATE_FAILED",
+        "CREATE_COMPLETE",
+        "ROLLBACK_IN_PROGRESS",
+        "ROLLBACK_FAILED",
+        "ROLLBACK_COMPLETE",
+        "UPDATE_IN_PROGRESS",
+        "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS",
+        "UPDATE_COMPLETE",
+        "UPDATE_FAILED",
+        "UPDATE_ROLLBACK_IN_PROGRESS",
+        "UPDATE_ROLLBACK_FAILED",
+        "UPDATE_ROLLBACK_COMPLETE",
     ]
-    kwargs: dict[str, Any] = {
-        "StackStatusFilter": status_filter or default_filter
-    }
+    kwargs: dict[str, Any] = {"StackStatusFilter": status_filter or default_filter}
     stacks: list[CFNStack] = []
     try:
         paginator = client.get_paginator("list_stacks")
@@ -189,8 +204,7 @@ def create_stack(
     }
     if parameters:
         kwargs["Parameters"] = [
-            {"ParameterKey": k, "ParameterValue": v}
-            for k, v in parameters.items()
+            {"ParameterKey": k, "ParameterValue": v} for k, v in parameters.items()
         ]
     if tags:
         kwargs["Tags"] = [{"Key": k, "Value": v} for k, v in tags.items()]
@@ -198,9 +212,7 @@ def create_stack(
     try:
         resp = client.create_stack(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create stack {stack_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create stack {stack_name!r}: {exc}") from exc
     return resp["StackId"]
 
 
@@ -237,15 +249,12 @@ def update_stack(
     }
     if parameters:
         kwargs["Parameters"] = [
-            {"ParameterKey": k, "ParameterValue": v}
-            for k, v in parameters.items()
+            {"ParameterKey": k, "ParameterValue": v} for k, v in parameters.items()
         ]
     try:
         resp = client.update_stack(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to update stack {stack_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to update stack {stack_name!r}: {exc}") from exc
     return resp["StackId"]
 
 
@@ -266,9 +275,7 @@ def delete_stack(
     try:
         client.delete_stack(StackName=stack_name)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete stack {stack_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete stack {stack_name!r}: {exc}") from exc
 
 
 def wait_for_stack(
@@ -311,10 +318,9 @@ def wait_for_stack(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_stack(stack: dict) -> CFNStack:
-    outputs = {
-        o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])
-    }
+    outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
     parameters = {
         p["ParameterKey"]: p.get("ParameterValue", "")
         for p in stack.get("Parameters", [])
@@ -336,6 +342,7 @@ def _parse_stack(stack: dict) -> CFNStack:
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def deploy_stack(
     stack_name: str,

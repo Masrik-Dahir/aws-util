@@ -12,6 +12,7 @@ from aws_util._client import get_client
 # Models
 # ---------------------------------------------------------------------------
 
+
 class SendEmailResult(BaseModel):
     """Result of an SES ``SendEmail`` call."""
 
@@ -32,6 +33,7 @@ class EmailAddress(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def send_email(
     from_address: str,
@@ -188,6 +190,7 @@ def send_raw_email(
 # ---------------------------------------------------------------------------
 # Complex utilities
 # ---------------------------------------------------------------------------
+
 
 def send_with_attachment(
     from_address: str,
