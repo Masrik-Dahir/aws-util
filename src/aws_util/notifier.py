@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
 
-
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -397,9 +396,10 @@ def resolve_and_notify(
     Raises:
         ValueError: If no destination can be resolved.
     """
+    import json as _json
+
     from aws_util.parameter_store import get_parameter
     from aws_util.secrets_manager import get_secret
-    import json as _json
 
     body = (
         message_template.format(**template_vars)

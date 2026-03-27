@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from aws_util._client import get_client
 
-
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------

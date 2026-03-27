@@ -5,7 +5,6 @@ from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
 
-
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -180,6 +179,7 @@ def envelope_encrypt(
         RuntimeError: If KMS key generation fails.
     """
     import os
+
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     data_key = generate_data_key(key_id, region_name=region_name)

@@ -5,7 +5,6 @@ from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
 
-
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
