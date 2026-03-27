@@ -41,9 +41,7 @@ def get_parameters_by_path(
             for param in page.get("Parameters", []):
                 params[param["Name"]] = param["Value"]
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_parameters_by_path failed for path {path!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_parameters_by_path failed for path {path!r}: {exc}") from exc
     return params
 
 

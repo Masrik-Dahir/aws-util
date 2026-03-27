@@ -227,9 +227,7 @@ def get_secret(
         raise RuntimeError(f"Error resolving secret {secret_id!r}: {exc}") from exc
 
     secret_str: str = (
-        resp["SecretString"]
-        if "SecretString" in resp
-        else resp["SecretBinary"].decode("utf-8")
+        resp["SecretString"] if "SecretString" in resp else resp["SecretBinary"].decode("utf-8")
     )
 
     if json_key is None:

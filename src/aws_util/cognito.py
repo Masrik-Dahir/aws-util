@@ -95,9 +95,7 @@ def admin_create_user(
     try:
         resp = client.admin_create_user(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create Cognito user {username!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create Cognito user {username!r}: {exc}") from exc
     return _parse_user(resp["User"])
 
 
@@ -148,9 +146,7 @@ def admin_delete_user(
     try:
         client.admin_delete_user(UserPoolId=user_pool_id, Username=username)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete Cognito user {username!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete Cognito user {username!r}: {exc}") from exc
 
 
 def admin_set_user_password(
@@ -182,9 +178,7 @@ def admin_set_user_password(
             Permanent=permanent,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to set password for Cognito user {username!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to set password for Cognito user {username!r}: {exc}") from exc
 
 
 def admin_add_user_to_group(
@@ -212,9 +206,7 @@ def admin_add_user_to_group(
             GroupName=group_name,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to add {username!r} to group {group_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to add {username!r} to group {group_name!r}: {exc}") from exc
 
 
 def admin_remove_user_from_group(
@@ -282,9 +274,7 @@ def list_users(
             for user in page.get("Users", []):
                 users.append(_parse_user(user))
     except ClientError as exc:
-        raise RuntimeError(
-            f"list_users failed for pool {user_pool_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"list_users failed for pool {user_pool_id!r}: {exc}") from exc
     return users
 
 
@@ -479,6 +469,4 @@ def reset_user_password(
     try:
         client.admin_reset_user_password(UserPoolId=user_pool_id, Username=username)
     except ClientError as exc:
-        raise RuntimeError(
-            f"reset_user_password failed for {username!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"reset_user_password failed for {username!r}: {exc}") from exc

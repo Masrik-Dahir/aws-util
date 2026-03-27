@@ -193,9 +193,7 @@ def get_document_text_detection(
                 break
             kwargs["NextToken"] = next_token
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_document_text_detection failed for job {job_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_document_text_detection failed for job {job_id!r}: {exc}") from exc
     return TextractJobResult(
         job_id=job_id,
         status=status,
@@ -230,9 +228,7 @@ def wait_for_document_text_detection(
         if result.status in _TERMINAL_STATUSES:
             return result
         if time.monotonic() >= deadline:
-            raise TimeoutError(
-                f"Textract job {job_id!r} did not finish within {timeout}s"
-            )
+            raise TimeoutError(f"Textract job {job_id!r} did not finish within {timeout}s")
         time.sleep(poll_interval)
 
 

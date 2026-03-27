@@ -143,9 +143,7 @@ def start_db_instance(
     try:
         client.start_db_instance(DBInstanceIdentifier=db_instance_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to start RDS instance {db_instance_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to start RDS instance {db_instance_id!r}: {exc}") from exc
 
 
 def stop_db_instance(
@@ -167,9 +165,7 @@ def stop_db_instance(
     try:
         client.stop_db_instance(DBInstanceIdentifier=db_instance_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to stop RDS instance {db_instance_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to stop RDS instance {db_instance_id!r}: {exc}") from exc
 
 
 def create_db_snapshot(
@@ -197,9 +193,7 @@ def create_db_snapshot(
             DBSnapshotIdentifier=snapshot_id,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create snapshot for {db_instance_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create snapshot for {db_instance_id!r}: {exc}") from exc
     snap = resp["DBSnapshot"]
     return RDSSnapshot(
         snapshot_id=snap["DBSnapshotIdentifier"],
@@ -354,9 +348,7 @@ def wait_for_snapshot(
         try:
             resp = client.describe_db_snapshots(DBSnapshotIdentifier=snapshot_id)
         except ClientError as exc:
-            raise RuntimeError(
-                f"describe snapshot {snapshot_id!r} failed: {exc}"
-            ) from exc
+            raise RuntimeError(f"describe snapshot {snapshot_id!r} failed: {exc}") from exc
         snaps = resp.get("DBSnapshots", [])
         if not snaps:
             raise RuntimeError(f"Snapshot {snapshot_id!r} not found")

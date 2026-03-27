@@ -74,9 +74,7 @@ def upload_file(
             ExtraArgs=extra or None,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to upload {file_path!r} to s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to upload {file_path!r} to s3://{bucket}/{key}: {exc}") from exc
 
 
 def upload_bytes(
@@ -105,9 +103,7 @@ def upload_bytes(
     try:
         client.put_object(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to upload bytes to s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to upload bytes to s3://{bucket}/{key}: {exc}") from exc
 
 
 def download_file(
@@ -198,9 +194,7 @@ def list_objects(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to list objects in s3://{bucket}/{prefix}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to list objects in s3://{bucket}/{prefix}: {exc}") from exc
     return objects
 
 
@@ -232,9 +226,7 @@ def object_exists(
     except ClientError as exc:
         if exc.response["Error"]["Code"] in ("404", "NoSuchKey"):
             return False
-        raise RuntimeError(
-            f"Failed to check existence of s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to check existence of s3://{bucket}/{key}: {exc}") from exc
 
 
 def delete_object(
@@ -384,9 +376,7 @@ def write_json(
     import json
 
     payload = json.dumps(data, indent=indent).encode("utf-8")
-    upload_bytes(
-        bucket, key, payload, content_type="application/json", region_name=region_name
-    )
+    upload_bytes(bucket, key, payload, content_type="application/json", region_name=region_name)
 
 
 def read_jsonl(
@@ -420,9 +410,7 @@ def read_jsonl(
         try:
             yield json.loads(line)
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"s3://{bucket}/{key} line {i} is not valid JSON: {exc}"
-            ) from exc
+            raise ValueError(f"s3://{bucket}/{key} line {i} is not valid JSON: {exc}") from exc
 
 
 def sync_folder(
@@ -550,9 +538,7 @@ def multipart_upload(
         )
     except Exception as exc:
         client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
-        raise RuntimeError(
-            f"Multipart upload failed for s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Multipart upload failed for s3://{bucket}/{key}: {exc}") from exc
 
 
 def delete_prefix(
@@ -583,14 +569,10 @@ def delete_prefix(
             keys = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
             if not keys:
                 continue
-            client.delete_objects(
-                Bucket=bucket, Delete={"Objects": keys, "Quiet": True}
-            )
+            client.delete_objects(Bucket=bucket, Delete={"Objects": keys, "Quiet": True})
             deleted_count += len(keys)
     except ClientError as exc:
-        raise RuntimeError(
-            f"delete_prefix failed for s3://{bucket}/{prefix}: {exc}"
-        ) from exc
+        raise RuntimeError(f"delete_prefix failed for s3://{bucket}/{prefix}: {exc}") from exc
     return deleted_count
 
 
@@ -642,9 +624,7 @@ def get_object_metadata(
     try:
         resp = client.head_object(Bucket=bucket, Key=key)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to get metadata for s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to get metadata for s3://{bucket}/{key}: {exc}") from exc
     return {
         "content_type": resp.get("ContentType"),
         "content_length": resp.get("ContentLength"),

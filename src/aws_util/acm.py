@@ -95,9 +95,7 @@ def describe_certificate(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ResourceNotFoundException":
             return None
-        raise RuntimeError(
-            f"describe_certificate failed for {certificate_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"describe_certificate failed for {certificate_arn!r}: {exc}") from exc
     cert = resp["Certificate"]
     return ACMCertificate(
         certificate_arn=cert["CertificateArn"],
@@ -147,9 +145,7 @@ def request_certificate(
     try:
         resp = client.request_certificate(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to request certificate for {domain_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to request certificate for {domain_name!r}: {exc}") from exc
     return resp["CertificateArn"]
 
 
@@ -172,9 +168,7 @@ def delete_certificate(
     try:
         client.delete_certificate(CertificateArn=certificate_arn)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete certificate {certificate_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete certificate {certificate_arn!r}: {exc}") from exc
 
 
 def get_certificate_pem(
@@ -199,9 +193,7 @@ def get_certificate_pem(
     try:
         resp = client.get_certificate(CertificateArn=certificate_arn)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to get certificate PEM for {certificate_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to get certificate PEM for {certificate_arn!r}: {exc}") from exc
     return resp["Certificate"]
 
 

@@ -123,9 +123,7 @@ def get_job_run(
     try:
         resp = client.get_job_run(JobName=job_name, RunId=run_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_job_run failed for {job_name!r}/{run_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_job_run failed for {job_name!r}/{run_id!r}: {exc}") from exc
     return _parse_run(resp["JobRun"])
 
 
@@ -241,9 +239,7 @@ def wait_for_job_run(
         if run.finished:
             return run
         if time.monotonic() >= deadline:
-            raise TimeoutError(
-                f"Glue job run {run_id!r} did not finish within {timeout}s"
-            )
+            raise TimeoutError(f"Glue job run {run_id!r} did not finish within {timeout}s")
         time.sleep(poll_interval)
 
 
@@ -316,9 +312,7 @@ def stop_job_run(
     try:
         client.batch_stop_job_run(JobName=job_name, JobRunIds=[run_id])
     except ClientError as exc:
-        raise RuntimeError(
-            f"stop_job_run failed for {job_name!r}/{run_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"stop_job_run failed for {job_name!r}/{run_id!r}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------

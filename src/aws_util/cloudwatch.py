@@ -144,18 +144,14 @@ def put_metrics(
                 "MetricName": m.metric_name,
                 "Value": m.value,
                 "Unit": m.unit,
-                "Dimensions": [
-                    {"Name": d.name, "Value": d.value} for d in m.dimensions
-                ],
+                "Dimensions": [{"Name": d.name, "Value": d.value} for d in m.dimensions],
             }
             for m in chunk
         ]
         try:
             client.put_metric_data(Namespace=namespace, MetricData=metric_data)
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to put metrics to namespace {namespace!r}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to put metrics to namespace {namespace!r}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -183,9 +179,7 @@ def create_log_group(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ResourceAlreadyExistsException":
             return
-        raise RuntimeError(
-            f"Failed to create log group {log_group_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create log group {log_group_name!r}: {exc}") from exc
 
 
 def create_log_stream(
@@ -296,8 +290,7 @@ def get_log_events(
         ) from exc
 
     return [
-        LogEvent(timestamp=e["timestamp"], message=e["message"])
-        for e in resp.get("events", [])
+        LogEvent(timestamp=e["timestamp"], message=e["message"]) for e in resp.get("events", [])
     ]
 
 
@@ -344,8 +337,7 @@ def get_metric_statistics(
         "StartTime": start_time,
         "EndTime": end_time,
         "Period": period,
-        "Statistics": statistics
-        or ["Average", "Sum", "Maximum", "Minimum", "SampleCount"],
+        "Statistics": statistics or ["Average", "Sum", "Maximum", "Minimum", "SampleCount"],
     }
     if dimensions:
         kwargs["Dimensions"] = [{"Name": d.name, "Value": d.value} for d in dimensions]

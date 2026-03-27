@@ -439,9 +439,7 @@ def transact_get(
     results: list[dict[str, Any] | None] = []
     for entry in resp.get("Responses", []):
         if "Item" in entry:
-            results.append(
-                {k: deserializer.deserialize(v) for k, v in entry["Item"].items()}
-            )
+            results.append({k: deserializer.deserialize(v) for k, v in entry["Item"].items()})
         else:
             results.append(None)
     return results
@@ -482,9 +480,7 @@ def atomic_increment(
             ReturnValues="UPDATED_NEW",
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"atomic_increment failed on {table_name!r}.{attribute}: {exc}"
-        ) from exc
+        raise RuntimeError(f"atomic_increment failed on {table_name!r}.{attribute}: {exc}") from exc
     return int(resp["Attributes"][attribute])
 
 
@@ -524,6 +520,4 @@ def put_if_not_exists(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
             return False
-        raise RuntimeError(
-            f"put_if_not_exists failed on {table_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"put_if_not_exists failed on {table_name!r}: {exc}") from exc

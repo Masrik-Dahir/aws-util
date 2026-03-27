@@ -105,9 +105,7 @@ def get_query_execution(
     try:
         resp = client.get_query_execution(QueryExecutionId=query_execution_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_query_execution failed for {query_execution_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_query_execution failed for {query_execution_id!r}: {exc}") from exc
     return _parse_execution(resp["QueryExecution"])
 
 
@@ -154,9 +152,7 @@ def get_query_results(
                 if max_rows is not None and len(rows) >= max_rows:
                     return rows
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_query_results failed for {query_execution_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_query_results failed for {query_execution_id!r}: {exc}") from exc
     return rows
 
 
@@ -224,9 +220,7 @@ def run_query(
         RuntimeError: If the query fails or is cancelled.
         TimeoutError: If the query does not complete within *timeout*.
     """
-    execution_id = start_query(
-        query, database, output_location, workgroup, region_name=region_name
-    )
+    execution_id = start_query(query, database, output_location, workgroup, region_name=region_name)
     execution = wait_for_query(
         execution_id,
         poll_interval=poll_interval,
@@ -342,9 +336,7 @@ def stop_query(
     try:
         client.stop_query_execution(QueryExecutionId=query_execution_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"stop_query failed for {query_execution_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"stop_query failed for {query_execution_id!r}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------

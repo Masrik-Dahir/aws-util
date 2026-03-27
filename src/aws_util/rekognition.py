@@ -231,9 +231,7 @@ def detect_text(
             detected_text=td["DetectedText"],
             text_type=td["Type"],
             confidence=td["Confidence"],
-            bounding_box=(
-                _bbox(td["Geometry"]["BoundingBox"]) if td.get("Geometry") else None
-            ),
+            bounding_box=(_bbox(td["Geometry"]["BoundingBox"]) if td.get("Geometry") else None),
         )
         for td in resp.get("TextDetections", [])
     ]
@@ -272,9 +270,7 @@ def compare_faces(
         FaceMatch(
             similarity=fm["Similarity"],
             bounding_box=(
-                _bbox(fm["Face"]["BoundingBox"])
-                if fm.get("Face", {}).get("BoundingBox")
-                else None
+                _bbox(fm["Face"]["BoundingBox"]) if fm.get("Face", {}).get("BoundingBox") else None
             ),
         )
         for fm in resp.get("FaceMatches", [])
@@ -307,9 +303,7 @@ def detect_moderation_labels(
     client = get_client("rekognition", region_name)
     image = _resolve_image(image_bytes, s3_bucket, s3_key)
     try:
-        resp = client.detect_moderation_labels(
-            Image=image, MinConfidence=min_confidence
-        )
+        resp = client.detect_moderation_labels(Image=image, MinConfidence=min_confidence)
     except ClientError as exc:
         raise RuntimeError(f"detect_moderation_labels failed: {exc}") from exc
     return [
@@ -350,9 +344,7 @@ def create_collection(
     try:
         resp = client.create_collection(CollectionId=collection_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create collection {collection_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create collection {collection_id!r}: {exc}") from exc
     return resp.get("CollectionArn", "")
 
 
@@ -396,9 +388,7 @@ def index_face(
     try:
         resp = client.index_faces(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"index_face failed for collection {collection_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"index_face failed for collection {collection_id!r}: {exc}") from exc
     records = resp.get("FaceRecords", [])
     if not records:
         raise RuntimeError("No face detected in the provided image")
@@ -474,9 +464,7 @@ def delete_collection(
     try:
         client.delete_collection(CollectionId=collection_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete collection {collection_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete collection {collection_id!r}: {exc}") from exc
 
 
 def ensure_collection(
@@ -505,9 +493,7 @@ def ensure_collection(
         return resp["CollectionARN"], False
     except ClientError as exc:
         if exc.response["Error"]["Code"] != "ResourceNotFoundException":
-            raise RuntimeError(
-                f"ensure_collection failed for {collection_id!r}: {exc}"
-            ) from exc
+            raise RuntimeError(f"ensure_collection failed for {collection_id!r}: {exc}") from exc
 
     arn = create_collection(collection_id, region_name=region_name)
     return arn, True

@@ -284,9 +284,7 @@ def analyze_text(
         "language": lambda: detect_dominant_language(text, region_name),
     }
     if language_code == "en":
-        tasks["pii_entities"] = lambda: detect_pii_entities(
-            text, language_code, region_name
-        )
+        tasks["pii_entities"] = lambda: detect_pii_entities(text, language_code, region_name)
 
     results: dict[str, Any] = {}
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
@@ -330,9 +328,7 @@ def redact_pii(
     entities_sorted = sorted(entities, key=lambda e: e.begin_offset, reverse=True)
     result = text
     for entity in entities_sorted:
-        result = (
-            result[: entity.begin_offset] + replacement + result[entity.end_offset :]
-        )
+        result = result[: entity.begin_offset] + replacement + result[entity.end_offset :]
     return result
 
 

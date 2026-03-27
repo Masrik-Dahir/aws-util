@@ -76,9 +76,7 @@ def invoke_model(
             accept=accept,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to invoke Bedrock model {model_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to invoke Bedrock model {model_id!r}: {exc}") from exc
 
     raw_body = resp["body"].read()
     try:
@@ -295,9 +293,7 @@ def stream_invoke_claude(
             accept="application/json",
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to stream Bedrock model {model_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to stream Bedrock model {model_id!r}: {exc}") from exc
 
     for event in resp.get("body", []):
         chunk = event.get("chunk")

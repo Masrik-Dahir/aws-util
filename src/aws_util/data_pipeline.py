@@ -179,9 +179,7 @@ def run_athena_query(
 
     while True:
         if time.monotonic() > deadline:
-            raise RuntimeError(
-                f"Athena query {qid!r} timed out after {timeout_seconds} seconds."
-            )
+            raise RuntimeError(f"Athena query {qid!r} timed out after {timeout_seconds} seconds.")
         try:
             status_resp = client.get_query_execution(QueryExecutionId=qid)
         except ClientError as exc:
@@ -195,9 +193,7 @@ def run_athena_query(
             return AthenaQueryResult(
                 query_execution_id=qid,
                 state=state,
-                output_location=(
-                    execution.get("ResultConfiguration", {}).get("OutputLocation")
-                ),
+                output_location=(execution.get("ResultConfiguration", {}).get("OutputLocation")),
                 data_scanned_bytes=stats.get("DataScannedInBytes"),
                 execution_time_millis=stats.get("TotalExecutionTimeInMillis"),
                 error_message=execution["Status"].get("StateChangeReason"),
@@ -412,11 +408,7 @@ def s3_json_to_dynamodb(
         chunk = items[i : i + chunk_size]
         request_items = {
             table_name: [
-                {
-                    "PutRequest": {
-                        "Item": {k: serializer.serialize(v) for k, v in item.items()}
-                    }
-                }
+                {"PutRequest": {"Item": {k: serializer.serialize(v) for k, v in item.items()}}}
                 for item in chunk
             ]
         }
@@ -475,9 +467,7 @@ def s3_jsonl_to_sqs(
             raise RuntimeError(f"Failed to send batch to {queue_url!r}: {exc}") from exc
         if resp.get("Failed"):
             failures = [f["Message"] for f in resp["Failed"]]
-            raise RuntimeError(
-                f"Partial SQS send failure for {queue_url!r}: {failures}"
-            )
+            raise RuntimeError(f"Partial SQS send failure for {queue_url!r}: {failures}")
         sent += len(chunk)
 
     return sent
@@ -533,18 +523,14 @@ def kinesis_to_s3_snapshot(
         stream_resp = kinesis.describe_stream_summary(StreamName=stream_name)
         stream_resp["StreamDescriptionSummary"]["OpenShardCount"]
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to describe Kinesis stream {stream_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to describe Kinesis stream {stream_name!r}: {exc}") from exc
 
     # List shards
     try:
         shards_resp = kinesis.list_shards(StreamName=stream_name)
         shards = shards_resp.get("Shards", [])
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to list shards for stream {stream_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to list shards for stream {stream_name!r}: {exc}") from exc
 
     total_written = 0
 
@@ -556,9 +542,7 @@ def kinesis_to_s3_snapshot(
                 ShardIteratorType=shard_iterator_type,
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to get shard iterator for {shard_id!r}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to get shard iterator for {shard_id!r}: {exc}") from exc
 
         iterator = iter_resp["ShardIterator"]
         records_collected: list[str] = []
@@ -571,9 +555,7 @@ def kinesis_to_s3_snapshot(
                     Limit=min(100, max_records_per_shard - collected),
                 )
             except ClientError as exc:
-                raise RuntimeError(
-                    f"get_records failed for shard {shard_id!r}: {exc}"
-                ) from exc
+                raise RuntimeError(f"get_records failed for shard {shard_id!r}: {exc}") from exc
 
             for record in rec_resp.get("Records", []):
                 try:
@@ -606,8 +588,7 @@ def kinesis_to_s3_snapshot(
 
     with ThreadPoolExecutor(max_workers=min(len(shards), 10)) as pool:
         futures = {
-            pool.submit(_drain_shard, shard["ShardId"]): shard["ShardId"]
-            for shard in shards
+            pool.submit(_drain_shard, shard["ShardId"]): shard["ShardId"] for shard in shards
         }
         for future in as_completed(futures):
             total_written += future.result()

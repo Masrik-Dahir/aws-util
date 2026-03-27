@@ -36,9 +36,7 @@ class SQSMessage(BaseModel):
         try:
             return json.loads(self.body)
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"SQS message {self.message_id!r} body is not valid JSON"
-            ) from exc
+            raise ValueError(f"SQS message {self.message_id!r} body is not valid JSON") from exc
 
 
 class SendMessageResult(BaseModel):
@@ -76,9 +74,7 @@ def get_queue_url(
         resp = client.get_queue_url(QueueName=queue_name)
         return resp["QueueUrl"]
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to resolve URL for queue {queue_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to resolve URL for queue {queue_name!r}: {exc}") from exc
 
 
 def send_message(
@@ -163,9 +159,7 @@ def send_batch(
     try:
         resp = client.send_message_batch(QueueUrl=queue_url, Entries=entries)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to send message batch to {queue_url!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to send message batch to {queue_url!r}: {exc}") from exc
 
     if resp.get("Failed"):
         failures = [f["Message"] for f in resp["Failed"]]
@@ -214,9 +208,7 @@ def receive_messages(
             MessageAttributeNames=["All"],
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to receive messages from {queue_url!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to receive messages from {queue_url!r}: {exc}") from exc
 
     return [
         SQSMessage(
@@ -250,9 +242,7 @@ def delete_message(
     try:
         client.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete message from {queue_url!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete message from {queue_url!r}: {exc}") from exc
 
 
 def delete_batch(
@@ -275,21 +265,15 @@ def delete_batch(
         raise ValueError("delete_batch supports at most 10 handles per call")
 
     client = get_client("sqs", region_name)
-    entries = [
-        {"Id": str(i), "ReceiptHandle": rh} for i, rh in enumerate(receipt_handles)
-    ]
+    entries = [{"Id": str(i), "ReceiptHandle": rh} for i, rh in enumerate(receipt_handles)]
     try:
         resp = client.delete_message_batch(QueueUrl=queue_url, Entries=entries)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete message batch from {queue_url!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete message batch from {queue_url!r}: {exc}") from exc
 
     if resp.get("Failed"):
         failures = [f["Message"] for f in resp["Failed"]]
-        raise RuntimeError(
-            f"Batch delete partially failed for {queue_url!r}: {failures}"
-        )
+        raise RuntimeError(f"Batch delete partially failed for {queue_url!r}: {failures}")
 
 
 def purge_queue(
@@ -360,9 +344,7 @@ def drain_queue(
             break
 
         remaining = (
-            min(batch_size, max_messages - processed)
-            if max_messages is not None
-            else batch_size
+            min(batch_size, max_messages - processed) if max_messages is not None else batch_size
         )
         messages = receive_messages(
             queue_url,
@@ -495,9 +477,7 @@ def wait_for_message(
         for msg in messages:
             if predicate is None or predicate(msg):
                 if delete_on_match:
-                    delete_message(
-                        queue_url, msg.receipt_handle, region_name=region_name
-                    )
+                    delete_message(queue_url, msg.receipt_handle, region_name=region_name)
                 return msg
         _time.sleep(max(0, poll_interval - 1))
     return None
@@ -532,7 +512,5 @@ def get_queue_attributes(
             AttributeNames=attributes or ["All"],
         )
     except _CE as exc:
-        raise RuntimeError(
-            f"get_queue_attributes failed for {queue_url!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_queue_attributes failed for {queue_url!r}: {exc}") from exc
     return resp.get("Attributes", {})

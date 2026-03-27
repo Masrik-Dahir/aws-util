@@ -109,17 +109,13 @@ def publish_batch(
         for i, m in enumerate(messages)
     ]
     try:
-        resp = client.publish_batch(
-            TopicArn=topic_arn, PublishBatchRequestEntries=entries
-        )
+        resp = client.publish_batch(TopicArn=topic_arn, PublishBatchRequestEntries=entries)
     except ClientError as exc:
         raise RuntimeError(f"Failed to batch-publish to {topic_arn!r}: {exc}") from exc
 
     if resp.get("Failed"):
         failures = [f.get("Message", f.get("Code")) for f in resp["Failed"]]
-        raise RuntimeError(
-            f"Batch publish partially failed for {topic_arn!r}: {failures}"
-        )
+        raise RuntimeError(f"Batch publish partially failed for {topic_arn!r}: {failures}")
 
     return [
         PublishResult(

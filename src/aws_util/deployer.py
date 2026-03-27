@@ -294,9 +294,7 @@ def wait_for_lambda_update(
             reason = resp.get("LastUpdateStatusReasonCode", "")
             raise RuntimeError(f"Lambda update failed for {function_name!r}: {reason}")
         if time.monotonic() >= deadline:
-            raise TimeoutError(
-                f"Lambda {function_name!r} update did not finish within {timeout}s"
-            )
+            raise TimeoutError(f"Lambda {function_name!r} update did not finish within {timeout}s")
         time.sleep(poll_interval)
 
 
@@ -382,9 +380,7 @@ def deploy_lambda_with_config(
 
     # Update environment
     if merged_env:
-        update_lambda_environment(
-            function_name, merged_env, merge=True, region_name=region_name
-        )
+        update_lambda_environment(function_name, merged_env, merge=True, region_name=region_name)
 
     # Publish version and optionally update alias
     alias_arn: str | None = None
@@ -398,9 +394,7 @@ def deploy_lambda_with_config(
             last_modified=result.last_modified,
         )
         if alias:
-            alias_arn = update_lambda_alias(
-                function_name, alias, version, region_name=region_name
-            )
+            alias_arn = update_lambda_alias(function_name, alias, version, region_name=region_name)
 
     return LambdaDeployResult(
         function_name=result.function_name,
@@ -457,9 +451,7 @@ def deploy_ecs_image(
     try:
         svc_resp = client.describe_services(cluster=cluster, services=[service])
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to describe ECS service {service!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to describe ECS service {service!r}: {exc}") from exc
 
     services = svc_resp.get("services", [])
     if not services:
@@ -470,9 +462,7 @@ def deploy_ecs_image(
     try:
         td_resp = client.describe_task_definition(taskDefinition=task_def_arn)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to describe task definition {task_def_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to describe task definition {task_def_arn!r}: {exc}") from exc
 
     td = td_resp["taskDefinition"]
     containers: list[dict[str, Any]] = td["containerDefinitions"]
@@ -540,20 +530,14 @@ def deploy_ecs_image(
         while True:
             svc_resp = client.describe_services(cluster=cluster, services=[service])
             current_svc = svc_resp.get("services", [{}])[0]
-            active = [
-                d
-                for d in current_svc.get("deployments", [])
-                if d["status"] == "PRIMARY"
-            ]
+            active = [d for d in current_svc.get("deployments", []) if d["status"] == "PRIMARY"]
             if active and active[0].get("rolloutState") in {"COMPLETED", None}:
                 running = active[0].get("runningCount", 0)
                 desired = active[0].get("desiredCount", 0)
                 if running >= desired and active[0].get("pendingCount", 0) == 0:
                     break
             if time.monotonic() >= deadline:
-                raise TimeoutError(
-                    f"ECS service {service!r} did not stabilise within {timeout}s"
-                )
+                raise TimeoutError(f"ECS service {service!r} did not stabilise within {timeout}s")
             time.sleep(15)
 
     return ECSDeployResult(
@@ -630,9 +614,7 @@ def deploy_ecs_from_ecr(
     Raises:
         RuntimeError: If any step fails.
     """
-    image_uri = get_latest_ecr_image_uri(
-        repository_name, tag=tag, region_name=region_name
-    )
+    image_uri = get_latest_ecr_image_uri(repository_name, tag=tag, region_name=region_name)
     return deploy_ecs_image(
         cluster=cluster,
         service=service,

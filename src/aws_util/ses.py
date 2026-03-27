@@ -322,9 +322,7 @@ def verify_email_address(
     try:
         client.verify_email_address(EmailAddress=email_address)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to verify email address {email_address!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to verify email address {email_address!r}: {exc}") from exc
 
 
 def list_verified_email_addresses(

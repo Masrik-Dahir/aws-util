@@ -194,13 +194,9 @@ def upsert_record(
         ]
     }
     try:
-        resp = client.change_resource_record_sets(
-            HostedZoneId=zone_id, ChangeBatch=change_batch
-        )
+        resp = client.change_resource_record_sets(HostedZoneId=zone_id, ChangeBatch=change_batch)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to upsert record {name!r} in zone {zone_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to upsert record {name!r} in zone {zone_id!r}: {exc}") from exc
     return resp["ChangeInfo"]["Id"]
 
 
@@ -245,9 +241,7 @@ def delete_record(
         ]
     }
     try:
-        resp = client.change_resource_record_sets(
-            HostedZoneId=zone_id, ChangeBatch=change_batch
-        )
+        resp = client.change_resource_record_sets(HostedZoneId=zone_id, ChangeBatch=change_batch)
     except ClientError as exc:
         raise RuntimeError(
             f"Failed to delete record {name!r} from zone {zone_id!r}: {exc}"
@@ -297,9 +291,7 @@ def wait_for_change(
         try:
             resp = client.get_change(Id=change_id)
         except ClientError as exc:
-            raise RuntimeError(
-                f"wait_for_change failed for {change_id!r}: {exc}"
-            ) from exc
+            raise RuntimeError(f"wait_for_change failed for {change_id!r}: {exc}") from exc
 
         status = resp["ChangeInfo"]["Status"]
         if status == "INSYNC":
@@ -356,7 +348,5 @@ def bulk_upsert_records(
             ChangeBatch={"Changes": changes},
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"bulk_upsert_records failed for zone {zone_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"bulk_upsert_records failed for zone {zone_id!r}: {exc}") from exc
     return resp["ChangeInfo"]["Id"]

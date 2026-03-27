@@ -92,9 +92,7 @@ def start_execution(
     try:
         resp = client.start_execution(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to start execution for {state_machine_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to start execution for {state_machine_arn!r}: {exc}") from exc
     return SFNExecution(
         execution_arn=resp["executionArn"],
         state_machine_arn=state_machine_arn,
@@ -124,9 +122,7 @@ def describe_execution(
     try:
         resp = client.describe_execution(executionArn=execution_arn)
     except ClientError as exc:
-        raise RuntimeError(
-            f"describe_execution failed for {execution_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"describe_execution failed for {execution_arn!r}: {exc}") from exc
     return _parse_execution(resp)
 
 
@@ -151,9 +147,7 @@ def stop_execution(
     try:
         client.stop_execution(executionArn=execution_arn, error=error, cause=cause)
     except ClientError as exc:
-        raise RuntimeError(
-            f"stop_execution failed for {execution_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"stop_execution failed for {execution_arn!r}: {exc}") from exc
 
 
 def list_executions(
@@ -227,9 +221,7 @@ def wait_for_execution(
         if execution.finished:
             return execution
         if time.monotonic() >= deadline:
-            raise TimeoutError(
-                f"Execution {execution_arn!r} did not finish within {timeout}s"
-            )
+            raise TimeoutError(f"Execution {execution_arn!r} did not finish within {timeout}s")
         time.sleep(poll_interval)
 
 
@@ -371,7 +363,5 @@ def get_execution_history(
         for page in paginator.paginate(**kwargs):
             events.extend(page.get("events", []))
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_execution_history failed for {execution_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_execution_history failed for {execution_arn!r}: {exc}") from exc
     return events

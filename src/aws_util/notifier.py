@@ -194,9 +194,7 @@ def send_alert(
             without *from_email*.
     """
     if not any([sns_topic_arn, to_emails, queue_url]):
-        raise ValueError(
-            "At least one of sns_topic_arn, to_emails, or queue_url must be provided."
-        )
+        raise ValueError("At least one of sns_topic_arn, to_emails, or queue_url must be provided.")
     if to_emails and not from_email:
         raise ValueError("from_email is required when to_emails is specified.")
 
@@ -205,9 +203,7 @@ def send_alert(
     if sns_topic_arn:
         tasks.append(lambda: _publish_sns(sns_topic_arn, subject, message, region_name))
     if to_emails and from_email:
-        tasks.append(
-            lambda: _send_ses(from_email, to_emails, subject, message, region_name)
-        )
+        tasks.append(lambda: _send_ses(from_email, to_emails, subject, message, region_name))
     if queue_url:
         tasks.append(lambda: _enqueue_sqs(queue_url, subject, message, region_name))
 
@@ -405,9 +401,7 @@ def resolve_and_notify(
     from aws_util.parameter_store import get_parameter
     from aws_util.secrets_manager import get_secret
 
-    body = (
-        message_template.format(**template_vars) if template_vars else message_template
-    )
+    body = message_template.format(**template_vars) if template_vars else message_template
 
     sns_topic_arn: str | None = None
     queue_url: str | None = None

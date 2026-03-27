@@ -80,9 +80,7 @@ def put_record(
             PartitionKey=partition_key,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"put_record failed on stream {stream_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"put_record failed on stream {stream_name!r}: {exc}") from exc
     return KinesisRecord(
         shard_id=resp["ShardId"],
         sequence_number=resp["SequenceNumber"],
@@ -127,9 +125,7 @@ def put_records(
     try:
         resp = client.put_records(StreamName=stream_name, Records=entries)
     except ClientError as exc:
-        raise RuntimeError(
-            f"put_records failed on stream {stream_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"put_records failed on stream {stream_name!r}: {exc}") from exc
     return KinesisPutResult(
         failed_record_count=resp.get("FailedRecordCount", 0),
         records=resp.get("Records", []),
@@ -179,9 +175,7 @@ def describe_stream(
     try:
         resp = client.describe_stream_summary(StreamName=stream_name)
     except ClientError as exc:
-        raise RuntimeError(
-            f"describe_stream failed for {stream_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"describe_stream failed for {stream_name!r}: {exc}") from exc
     desc = resp["StreamDescriptionSummary"]
     return KinesisStream(
         stream_name=desc["StreamName"],
@@ -230,9 +224,7 @@ def get_records(
         )
         resp = client.get_records(ShardIterator=iter_resp["ShardIterator"], Limit=limit)
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_records failed for {stream_name!r}/{shard_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_records failed for {stream_name!r}/{shard_id!r}: {exc}") from exc
 
     result = []
     for rec in resp.get("Records", []):
@@ -351,9 +343,7 @@ def consume_stream(
                             "data": decoded,
                             "sequence_number": rec["SequenceNumber"],
                             "partition_key": rec["PartitionKey"],
-                            "approximate_arrival_timestamp": rec.get(
-                                "ApproximateArrivalTimestamp"
-                            ),
+                            "approximate_arrival_timestamp": rec.get("ApproximateArrivalTimestamp"),
                         }
                     )
                     count += 1

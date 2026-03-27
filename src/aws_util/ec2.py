@@ -214,9 +214,7 @@ def terminate_instances(
     try:
         client.terminate_instances(InstanceIds=instance_ids)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to terminate instances {instance_ids}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to terminate instances {instance_ids}: {exc}") from exc
 
 
 def create_image(
@@ -251,9 +249,7 @@ def create_image(
             NoReboot=no_reboot,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create image from {instance_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create image from {instance_id!r}: {exc}") from exc
     return resp["ImageId"]
 
 
@@ -463,9 +459,7 @@ def get_instance_console_output(
     try:
         resp = client.get_console_output(InstanceId=instance_id)
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_console_output failed for {instance_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"get_console_output failed for {instance_id!r}: {exc}") from exc
     encoded = resp.get("Output", "")
     if not encoded:
         return ""

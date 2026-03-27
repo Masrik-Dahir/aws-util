@@ -69,9 +69,7 @@ def invoke(
     raw_payload: bytes | None = None
     if payload is not None:
         raw_payload = (
-            json.dumps(payload).encode()
-            if isinstance(payload, (dict, list))
-            else payload.encode()
+            json.dumps(payload).encode() if isinstance(payload, (dict, list)) else payload.encode()
         )
 
     kwargs: dict[str, Any] = {
@@ -225,9 +223,7 @@ def fan_out(
     results: list[InvokeResult | None] = [None] * len(payloads)
 
     def _invoke(index: int, p: dict | list | str | None) -> tuple[int, InvokeResult]:
-        return index, invoke(
-            function_name, payload=p, qualifier=qualifier, region_name=region_name
-        )
+        return index, invoke(function_name, payload=p, qualifier=qualifier, region_name=region_name)
 
     with ThreadPoolExecutor(max_workers=max_concurrency) as pool:
         futures = {pool.submit(_invoke, i, p): i for i, p in enumerate(payloads)}

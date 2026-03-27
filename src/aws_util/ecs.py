@@ -310,9 +310,7 @@ def update_service(
     try:
         resp = client.update_service(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"update_service failed for {service_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"update_service failed for {service_name!r}: {exc}") from exc
     svc = resp["service"]
     return ECSService(
         service_arn=svc["serviceArn"],
@@ -469,9 +467,7 @@ def run_task_and_wait(
         count=1,
         region_name=region_name,
     )
-    return wait_for_task(
-        cluster, tasks[0].task_arn, timeout=timeout, region_name=region_name
-    )
+    return wait_for_task(cluster, tasks[0].task_arn, timeout=timeout, region_name=region_name)
 
 
 def wait_for_service_stable(
@@ -506,9 +502,7 @@ def wait_for_service_stable(
     while True:
         services = describe_services(cluster, [service_name], region_name=region_name)
         if not services:
-            raise RuntimeError(
-                f"Service {service_name!r} not found in cluster {cluster!r}"
-            )
+            raise RuntimeError(f"Service {service_name!r} not found in cluster {cluster!r}")
         svc = services[0]
         if svc.running_count == svc.desired_count and svc.pending_count == 0:
             return svc

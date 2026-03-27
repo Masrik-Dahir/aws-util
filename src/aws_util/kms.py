@@ -139,9 +139,7 @@ def generate_data_key(
     try:
         resp = client.generate_data_key(KeyId=key_id, KeySpec=key_spec)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to generate data key with KMS key {key_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to generate data key with KMS key {key_id!r}: {exc}") from exc
     return DataKey(
         plaintext=resp["Plaintext"],
         ciphertext_blob=resp["CiphertextBlob"],
@@ -269,15 +267,11 @@ def re_encrypt(
     try:
         resp = client.re_encrypt(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to re-encrypt to key {destination_key_id!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to re-encrypt to key {destination_key_id!r}: {exc}") from exc
     return EncryptResult(
         ciphertext_blob=resp["CiphertextBlob"],
         key_id=resp["KeyId"],
-        encryption_algorithm=resp.get(
-            "DestinationEncryptionAlgorithm", "SYMMETRIC_DEFAULT"
-        ),
+        encryption_algorithm=resp.get("DestinationEncryptionAlgorithm", "SYMMETRIC_DEFAULT"),
     )
 
 

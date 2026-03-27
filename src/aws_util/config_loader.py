@@ -75,9 +75,7 @@ def load_config_from_ssm(
     if not strip_prefix:
         return raw
     prefix = path.rstrip("/") + "/"
-    return {
-        (k[len(prefix) :] if k.startswith(prefix) else k): v for k, v in raw.items()
-    }
+    return {(k[len(prefix) :] if k.startswith(prefix) else k): v for k, v in raw.items()}
 
 
 def load_config_from_secret(

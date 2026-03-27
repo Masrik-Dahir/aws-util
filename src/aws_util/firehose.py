@@ -104,13 +104,9 @@ def put_record_batch(
     client = get_client("firehose", region_name)
     entries = [{"Data": _encode(r)} for r in records]
     try:
-        resp = client.put_record_batch(
-            DeliveryStreamName=delivery_stream_name, Records=entries
-        )
+        resp = client.put_record_batch(DeliveryStreamName=delivery_stream_name, Records=entries)
     except ClientError as exc:
-        raise RuntimeError(
-            f"put_record_batch failed on {delivery_stream_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"put_record_batch failed on {delivery_stream_name!r}: {exc}") from exc
     return FirehosePutResult(
         failed_put_count=resp.get("FailedPutCount", 0),
         request_responses=resp.get("RequestResponses", []),
@@ -221,9 +217,7 @@ def put_record_batch_with_retry(
         pending = list(chunk)
         attempt = 0
         while pending and attempt <= max_retries:
-            result = put_record_batch(
-                delivery_stream_name, pending, region_name=region_name
-            )
+            result = put_record_batch(delivery_stream_name, pending, region_name=region_name)
             if result.all_succeeded:
                 total_delivered += len(pending)
                 pending = []

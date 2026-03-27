@@ -322,8 +322,7 @@ def wait_for_stack(
 def _parse_stack(stack: dict) -> CFNStack:
     outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
     parameters = {
-        p["ParameterKey"]: p.get("ParameterValue", "")
-        for p in stack.get("Parameters", [])
+        p["ParameterKey"]: p.get("ParameterValue", "") for p in stack.get("Parameters", [])
     }
     tags = {t["Key"]: t["Value"] for t in stack.get("Tags", [])}
     return CFNStack(

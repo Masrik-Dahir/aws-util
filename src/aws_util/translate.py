@@ -70,9 +70,7 @@ def translate_text(
     try:
         resp = client.translate_text(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to translate text to {target_language_code!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to translate text to {target_language_code!r}: {exc}") from exc
     return TranslateResult(
         translated_text=resp["TranslatedText"],
         source_language_code=resp["SourceLanguageCode"],

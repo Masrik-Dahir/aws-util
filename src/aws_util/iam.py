@@ -252,9 +252,7 @@ def create_policy(
             Path=path,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create IAM policy {policy_name!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create IAM policy {policy_name!r}: {exc}") from exc
     return _parse_policy(resp["Policy"])
 
 
@@ -277,9 +275,7 @@ def delete_policy(
     try:
         client.delete_policy(PolicyArn=policy_arn)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete IAM policy {policy_arn!r}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to delete IAM policy {policy_arn!r}: {exc}") from exc
 
 
 def list_policies(
@@ -411,9 +407,7 @@ def create_role_with_policies(
     """
     import json
 
-    role = create_role(
-        role_name, trust_policy, description=description, region_name=region_name
-    )
+    role = create_role(role_name, trust_policy, description=description, region_name=region_name)
 
     for arn in managed_policy_arns or []:
         attach_role_policy(role_name, arn, region_name=region_name)
