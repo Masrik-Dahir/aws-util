@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aws-util"
-version = "0.3.0"
+version = "0.4.0"
 description = "A utility library for common AWS services"
 readme = "README.md"
 authors = [{ name = "Masrik Dahir", email = "info@masrikdahir.com" }]
@@ -39,11 +39,22 @@ dev = [
     "moto[s3,sqs,sns,dynamodb,ssm,secretsmanager,lambda,cloudwatch,logs,sts,events,kms,ec2,rds,ecs,ecr,iam,cognito-idp,route53,acm,stepfunctions,cloudformation,kinesis,firehose,ses,glue,athena]",
 ]
 
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+#ignore = ["E501"] # Ignore line-length if you prefer
+
 [tool.taskipy.tasks]
 install      = "pip install -e .[dev]"
 clean        = "python -c \"import shutil, glob; [shutil.rmtree(p, ignore_errors=True) for p in ['dist','build']+glob.glob('src/*.egg-info')]\""
 build        = "task clean && python -m build"
-publish      = "task build && python -m twine upload dist/*"
+bump         = "python -c \"import re; from pathlib import Path; p = Path('pyproject.toml'); content = p.read_text(); v = re.search(r'version = \\\"(\\d+)\\.(\\d+)\\.(\\d+)\\\"', content); major, minor, patch = map(int, v.groups()); new_v = f'{major+1}.0.0' if 'major' in '$npm_config_argv' or 'major' in '{{args}}' else f'{major}.{minor+1}.0'; p.write_text(re.sub(r'version = \\\".*?\\\"', f'version = \\\"{new_v}\\\"', content)); print(f'Bumped to {new_v}')\""
+publish       = "task bump minor && task build && python -m twine upload dist/*"
+"publish:major" = "task bump major && task build && python -m twine upload dist/*"
+"publish:minor" = "task publish"
 publish-test = "task build && python -m twine upload --repository testpypi dist/*"
 test         = "pytest tests/ -v"
 test-cov     = "pytest tests/ -v --cov=src/aws_util --cov-report=term-missing"
