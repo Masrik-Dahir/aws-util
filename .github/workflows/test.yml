@@ -12,20 +12,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          # Caching speeds up subsequent runs
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest
-          
-          # IMPORTANT: Install your project's dependencies so your tests can run.
-          # Uncomment the line that matches your project setup:
-          # pip install -r requirements.txt
-          # pip install .
-          # poetry install
+          pip install -e .[dev]
 
-      - name: Run tests with pytest
-        # This runs pytest and looks for tests in the 'tests/' directory
-        run: pytest tests/
+      - name: Run tests
+        run: pytest tests/ -v

@@ -17,10 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-cov
-          # Install your project so the coverage tool can see the source
-          pip install -e .
+          pip install -e .[dev]
 
       - name: Run tests with coverage
-        # Uses your specific command to show missing lines in the console
-        run: pytest --cov=src/ --cov-report=term-missing
+        run: pytest --cov=src/ --cov-report=term-missing --cov-fail-under=100
