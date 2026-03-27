@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: aws-util
-Version: 0.4.0
+Version: 0.5.0
 Summary: A utility library for common AWS services
 Author-email: Masrik Dahir <info@masrikdahir.com>
 Classifier: Programming Language :: Python :: 3

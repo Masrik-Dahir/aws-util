@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 import boto3
-from botocore.client import BaseClient
 
 
 @lru_cache(maxsize=None)
-def get_client(service: str, region_name: str | None = None) -> BaseClient:
+def get_client(service: str, region_name: str | None = None) -> Any:
     """Return a cached boto3 client for *service*.
 
     Clients are cached per (service, region) pair so that Lambda warm
@@ -25,7 +25,7 @@ def get_client(service: str, region_name: str | None = None) -> BaseClient:
     kwargs: dict[str, str] = {}
     if region_name is not None:
         kwargs["region_name"] = region_name
-    return boto3.client(service, **kwargs)
+    return boto3.client(service, **kwargs)  # type: ignore[call-overload]
 
 
 def clear_client_cache() -> None:

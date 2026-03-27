@@ -328,23 +328,19 @@ def broadcast(
 
     for arn in sns_topic_arns or []:
         _arn = arn
-        tasks.append(lambda a=_arn: _publish_sns(a, subject, message, region_name))
+        tasks.append(lambda a=_arn: _publish_sns(a, subject, message, region_name))  # type: ignore[misc]
 
     for url in queue_urls or []:
         _url = url
-        tasks.append(lambda u=_url: _enqueue_sqs(u, subject, message, region_name))
+        tasks.append(lambda u=_url: _enqueue_sqs(u, subject, message, region_name))  # type: ignore[misc]
 
     for group in to_email_groups or []:
         _group = group
-        tasks.append(
-            lambda g=_group: _send_ses(
-                from_email,
-                g,
-                subject,
-                message,
-                region_name,  # type: ignore[arg-type]
-            )
-        )
+
+        def _fn(g=_group):
+            return _send_ses(from_email, g, subject, message, region_name)  # type: ignore[misc,arg-type]
+
+        tasks.append(_fn)
 
     all_results: list[NotificationResult] = []
     if tasks:

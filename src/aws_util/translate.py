@@ -113,6 +113,8 @@ def translate_batch(
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    if not texts:
+        return []
     results: dict[int, TranslateResult] = {}
     with ThreadPoolExecutor(max_workers=min(len(texts), 10)) as pool:
         futures = {

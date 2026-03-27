@@ -521,3 +521,148 @@ def test_put_if_not_exists_runtime_error(monkeypatch):
     monkeypatch.setattr(ddb, "_table_resource", bad_table_resource)
     with pytest.raises(RuntimeError, match="put_if_not_exists failed"):
         put_if_not_exists("no-table", {"pk": "x"}, "pk", region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# query with index_name and pagination (lines 221, 233)
+# ---------------------------------------------------------------------------
+
+
+def test_query_with_index_name(monkeypatch):
+    """Covers index_name branch in query (line 221)."""
+    import aws_util.dynamodb as ddb
+
+    class FakeTable:
+        def query(self, **kwargs):
+            assert kwargs.get("IndexName") == "my-index"
+            return {"Items": [{"pk": "x"}], "LastEvaluatedKey": None}
+
+    monkeypatch.setattr(ddb, "_table_resource", lambda *a, **kw: FakeTable())
+    result = query(TABLE, Key("pk").eq("x"), index_name="my-index", region_name=REGION)
+    assert len(result) == 1
+
+
+def test_query_pagination(monkeypatch):
+    """Covers ExclusiveStartKey in query (line 233)."""
+    import aws_util.dynamodb as ddb
+
+    call_count = {"n": 0}
+
+    class PaginatedTable:
+        def query(self, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return {"Items": [{"pk": "p#1"}], "LastEvaluatedKey": {"pk": "p#1"}}
+            return {"Items": [{"pk": "p#2"}]}
+
+    monkeypatch.setattr(ddb, "_table_resource", lambda *a, **kw: PaginatedTable())
+    result = query(TABLE, Key("pk").eq("x"), region_name=REGION)
+    assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# scan with index_name and pagination (lines 269, 281)
+# ---------------------------------------------------------------------------
+
+
+def test_scan_with_index_name(monkeypatch):
+    """Covers index_name branch in scan (line 269)."""
+    import aws_util.dynamodb as ddb
+
+    class FakeTable:
+        def scan(self, **kwargs):
+            assert kwargs.get("IndexName") == "my-gsi"
+            return {"Items": [{"pk": "y"}]}
+
+    monkeypatch.setattr(ddb, "_table_resource", lambda *a, **kw: FakeTable())
+    result = scan(TABLE, index_name="my-gsi", region_name=REGION)
+    assert len(result) == 1
+
+
+def test_scan_pagination(monkeypatch):
+    """Covers ExclusiveStartKey in scan (line 281)."""
+    import aws_util.dynamodb as ddb
+
+    call_count = {"n": 0}
+
+    class PaginatedTable:
+        def scan(self, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return {"Items": [{"pk": "s#1"}], "LastEvaluatedKey": {"pk": "s#1"}}
+            return {"Items": [{"pk": "s#2"}]}
+
+    monkeypatch.setattr(ddb, "_table_resource", lambda *a, **kw: PaginatedTable())
+    result = scan(TABLE, region_name=REGION)
+    assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# batch_write ClientError (lines 355-356)
+# ---------------------------------------------------------------------------
+
+
+def test_batch_write_runtime_error(monkeypatch):
+    """Covers ClientError in batch_write (lines 355-356)."""
+    from unittest.mock import MagicMock, patch
+    from botocore.exceptions import ClientError
+
+    mock_batch = MagicMock()
+    mock_batch.__enter__ = MagicMock(return_value=mock_batch)
+    mock_batch.__exit__ = MagicMock(return_value=False)
+    mock_batch.put_item.side_effect = ClientError(
+        {"Error": {"Code": "ProvisionedThroughputExceededException", "Message": "throttled"}},
+        "BatchWriteItem",
+    )
+    mock_table = MagicMock()
+    mock_table.batch_writer.return_value = mock_batch
+    mock_resource = MagicMock()
+    mock_resource.Table.return_value = mock_table
+
+    with patch("boto3.resource", return_value=mock_resource):
+        with pytest.raises(RuntimeError, match="batch_write failed"):
+            batch_write(TABLE, [{"pk": "x"}], region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# transact_write ClientError (lines 394-395)
+# ---------------------------------------------------------------------------
+
+
+def test_transact_write_runtime_error(monkeypatch):
+    """Covers ClientError in transact_write (lines 394-395)."""
+    from unittest.mock import MagicMock, patch
+    from botocore.exceptions import ClientError
+
+    mock_resource = MagicMock()
+    mock_resource.meta.client.transact_write_items.side_effect = ClientError(
+        {"Error": {"Code": "TransactionCanceledException", "Message": "cancelled"}},
+        "TransactWriteItems",
+    )
+    ops = [{"Put": {"TableName": TABLE, "Item": {"pk": {"S": "x"}}}}]
+    with patch("boto3.resource", return_value=mock_resource):
+        with pytest.raises(RuntimeError, match="transact_write failed"):
+            transact_write(ops, region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# transact_get ClientError (lines 432-433)
+# ---------------------------------------------------------------------------
+
+
+def test_transact_get_runtime_error(monkeypatch):
+    """Covers ClientError in transact_get (lines 432-433)."""
+    from unittest.mock import patch, MagicMock
+    from botocore.exceptions import ClientError
+
+    mock_client = MagicMock()
+    mock_client.transact_get_items.side_effect = ClientError(
+        {"Error": {"Code": "TransactionCanceledException", "Message": "cancelled"}},
+        "TransactGetItems",
+    )
+    mock_resource = MagicMock()
+    mock_resource.meta.client = mock_client
+
+    with patch("boto3.client", return_value=mock_client):
+        with pytest.raises(RuntimeError, match="transact_get failed"):
+            transact_get([{"Get": {"TableName": TABLE, "Key": {"pk": {"S": "x"}}}}], region_name=REGION)

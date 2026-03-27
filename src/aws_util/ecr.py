@@ -321,5 +321,5 @@ def get_latest_image_tag(
     tagged = [img for img in images if img.image_pushed_at and img.image_tags]
     if not tagged:
         return None
-    latest = max(tagged, key=lambda img: img.image_pushed_at)  # type: ignore[arg-type]
+    latest = max(tagged, key=lambda img: img.image_pushed_at)  # type: ignore[arg-type,return-value]
     return latest.image_tags[0] if latest.image_tags else None

@@ -357,3 +357,25 @@ def test_email_address_model():
     addr = EmailAddress(address="test@example.com", verified=True)
     assert addr.address == "test@example.com"
     assert addr.verified is True
+
+
+def test_send_templated_email_with_bcc(monkeypatch):
+    """Covers bcc_addresses branch in send_templated_email (line 139)."""
+    from unittest.mock import MagicMock
+    import aws_util.ses as ses_mod
+
+    mock_client = MagicMock()
+    mock_client.send_templated_email.return_value = {"MessageId": "msg-bcc"}
+    monkeypatch.setattr(ses_mod, "get_client", lambda *a, **kw: mock_client)
+    from aws_util.ses import send_templated_email
+    result = send_templated_email(
+        from_address="sender@example.com",
+        to_addresses=["to@example.com"],
+        template_name="my-template",
+        template_data={"name": "world"},
+        bcc_addresses=["bcc@example.com"],
+        region_name="us-east-1",
+    )
+    assert result.message_id == "msg-bcc"
+    call_kwargs = mock_client.send_templated_email.call_args[1]
+    assert "BccAddresses" in call_kwargs["Destination"]

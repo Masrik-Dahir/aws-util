@@ -419,3 +419,40 @@ def test_get_instance_console_output_runtime_error(monkeypatch):
     monkeypatch.setattr(ec2mod, "get_client", lambda *a, **kw: mock_client)
     with pytest.raises(RuntimeError, match="get_console_output failed"):
         get_instance_console_output("i-nonexistent", region_name=REGION)
+
+
+def test_describe_security_groups_with_group_ids(monkeypatch):
+    """Covers GroupIds kwarg branch in describe_security_groups (line 321)."""
+    from unittest.mock import MagicMock
+    import aws_util.ec2 as ec2mod
+
+    mock_client = MagicMock()
+    mock_client.describe_security_groups.return_value = {"SecurityGroups": []}
+    monkeypatch.setattr(ec2mod, "get_client", lambda *a, **kw: mock_client)
+    result = describe_security_groups(group_ids=["sg-12345"], region_name=REGION)
+    assert result == []
+    call_kwargs = mock_client.describe_security_groups.call_args[1]
+    assert call_kwargs.get("GroupIds") == ["sg-12345"]
+
+
+def test_wait_for_instance_state_instance_not_found(monkeypatch):
+    """Covers 'instance not found' RuntimeError in wait_for_instance_state (line 375)."""
+    import aws_util.ec2 as ec2mod
+    monkeypatch.setattr(ec2mod, "get_instance", lambda *a, **kw: None)
+    with pytest.raises(RuntimeError, match="not found"):
+        wait_for_instance_state(
+            "i-nonexistent", "running", timeout=5.0, poll_interval=0.01, region_name=REGION
+        )
+
+
+def test_get_console_output_empty(monkeypatch):
+    """Covers empty console output return '' branch (line 465)."""
+    from unittest.mock import MagicMock
+    import aws_util.ec2 as ec2mod
+
+    mock_client = MagicMock()
+    mock_client.get_console_output.return_value = {"Output": ""}
+    monkeypatch.setattr(ec2mod, "get_client", lambda *a, **kw: mock_client)
+    from aws_util.ec2 import get_instance_console_output
+    result = get_instance_console_output("i-12345", region_name=REGION)
+    assert result == ""

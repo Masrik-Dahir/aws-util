@@ -320,7 +320,8 @@ class TestWaitForDbInstance:
             status="creating",
         )
         monkeypatch.setattr(rds_mod, "get_db_instance", lambda *a, **kw: mock_instance)
-        monkeypatch.setattr(rds_mod.__import__("time", fromlist=[""]), "sleep", lambda s: None)
+        import time
+        monkeypatch.setattr(time, "sleep", lambda s: None)
 
         with pytest.raises(TimeoutError):
             wait_for_db_instance("db-1", target_status="available", timeout=0.0, poll_interval=0.0)
@@ -414,3 +415,55 @@ class TestRestoreDbFromSnapshot:
 
         with pytest.raises(RuntimeError, match="restore_db_from_snapshot failed"):
             restore_db_from_snapshot("ghost-snap", "new-db", "db.t3.micro")
+
+
+def test_wait_for_db_instance_sleep_branch(monkeypatch):
+    """Covers time.sleep in wait_for_db_instance (line 317)."""
+    import time
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    import aws_util.rds as rds_mod
+    from aws_util.rds import RDSInstance, wait_for_db_instance
+
+    call_count = {"n": 0}
+
+    def fake_get(db_id, region_name=None):
+        call_count["n"] += 1
+        status = "creating" if call_count["n"] < 2 else "available"
+        return RDSInstance(db_instance_id=db_id, db_instance_class="db.t3.micro",
+                           engine="mysql", engine_version="8.0", status=status)
+
+    monkeypatch.setattr(rds_mod, "get_db_instance", fake_get)
+    result = wait_for_db_instance("db-1", target_status="available", timeout=10.0,
+                                  poll_interval=0.001, region_name="us-east-1")
+    assert result.status == "available"
+
+
+def test_wait_for_snapshot_sleep_branch(monkeypatch):
+    """Covers time.sleep in wait_for_snapshot (line 370)."""
+    import time
+    from unittest.mock import MagicMock
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    import aws_util.rds as rds_mod
+    from aws_util.rds import wait_for_snapshot
+
+    call_count = {"n": 0}
+    mock_client = MagicMock()
+
+    def fake_describe_db_snapshots(DBSnapshotIdentifier):
+        call_count["n"] += 1
+        status = "creating" if call_count["n"] < 2 else "available"
+        return {
+            "DBSnapshots": [{
+                "DBSnapshotIdentifier": DBSnapshotIdentifier,
+                "DBInstanceIdentifier": "db-1",
+                "Status": status,
+                "SnapshotType": "manual",
+                "Engine": "mysql",
+            }]
+        }
+
+    mock_client.describe_db_snapshots.side_effect = fake_describe_db_snapshots
+    monkeypatch.setattr(rds_mod, "get_client", lambda *a, **kw: mock_client)
+    result = wait_for_snapshot("snap-1", target_status="available", timeout=10.0,
+                               poll_interval=0.001, region_name="us-east-1")
+    assert result.status == "available"

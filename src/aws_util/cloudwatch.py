@@ -302,8 +302,8 @@ def get_log_events(
 def get_metric_statistics(
     namespace: str,
     metric_name: str,
-    start_time: datetime,
-    end_time: datetime,
+    start_time: datetime.datetime,
+    end_time: datetime.datetime,
     period: int = 300,
     statistics: list[str] | None = None,
     dimensions: list[MetricDimension] | None = None,

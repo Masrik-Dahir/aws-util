@@ -40,7 +40,7 @@ def _table_resource(table_name: str, region_name: str | None = None):
     kwargs: dict[str, str] = {}
     if region_name:
         kwargs["region_name"] = region_name
-    dynamodb = boto3.resource("dynamodb", **kwargs)
+    dynamodb = boto3.resource("dynamodb", **kwargs)  # type: ignore[call-overload]
     return dynamodb.Table(table_name)
 
 
@@ -311,7 +311,7 @@ def batch_get(
     kwargs: dict[str, str] = {}
     if region_name:
         kwargs["region_name"] = region_name
-    dynamodb = boto3.resource("dynamodb", **kwargs)
+    dynamodb = boto3.resource("dynamodb", **kwargs)  # type: ignore[call-overload]
 
     raw_keys = [k.as_dict() if isinstance(k, DynamoKey) else k for k in keys]
     request = {table_name: {"Keys": raw_keys}}
@@ -345,7 +345,7 @@ def batch_write(
     kwargs: dict[str, str] = {}
     if region_name:
         kwargs["region_name"] = region_name
-    dynamodb = boto3.resource("dynamodb", **kwargs)
+    dynamodb = boto3.resource("dynamodb", **kwargs)  # type: ignore[call-overload]
     table = dynamodb.Table(table_name)
 
     try:
@@ -388,7 +388,7 @@ def transact_write(
     kwargs: dict[str, str] = {}
     if region_name:
         kwargs["region_name"] = region_name
-    dynamodb = boto3.resource("dynamodb", **kwargs)
+    dynamodb = boto3.resource("dynamodb", **kwargs)  # type: ignore[call-overload]
     try:
         dynamodb.meta.client.transact_write_items(TransactItems=operations)
     except ClientError as exc:
@@ -423,7 +423,7 @@ def transact_get(
     kwargs: dict[str, str] = {}
     if region_name:
         kwargs["region_name"] = region_name
-    client = boto3.client("dynamodb", **kwargs)
+    client = boto3.client("dynamodb", **kwargs)  # type: ignore[call-overload]
 
     # Wrap plain dicts if caller used {TableName, Key} shorthand
     wrapped = [item if "Get" in item else {"Get": item} for item in items]

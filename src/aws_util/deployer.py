@@ -369,10 +369,10 @@ def deploy_lambda_with_config(
     else:
         result = update_lambda_code_from_s3(
             function_name,
-            s3_bucket,
-            s3_key,
+            s3_bucket,  # type: ignore[arg-type]
+            s3_key,  # type: ignore[arg-type]
             publish=False,
-            region_name=region_name,  # type: ignore[arg-type]
+            region_name=region_name,
         )
 
     # Wait for the code update to propagate before publishing

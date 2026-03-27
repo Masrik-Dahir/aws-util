@@ -272,3 +272,23 @@ def test_fan_out_none_payload(fn):
 def test_fan_out_with_qualifier(fn):
     results = fan_out(fn, [{"x": 1}], qualifier="$LATEST", region_name=REGION)
     assert len(results) == 1
+
+
+def test_invoke_with_log_result(monkeypatch):
+    """Covers base64 log result decoding branch (line 100)."""
+    import base64
+    import aws_util.lambda_ as lambda_mod
+    from unittest.mock import MagicMock
+
+    log_bytes = base64.b64encode(b"START RequestId: abc\nEND RequestId: abc").decode()
+    mock_client = MagicMock()
+    mock_client.invoke.return_value = {
+        "StatusCode": 200,
+        "Payload": MagicMock(read=MagicMock(return_value=b'"success"')),
+        "LogResult": log_bytes,
+    }
+    monkeypatch.setattr(lambda_mod, "get_client", lambda *a, **kw: mock_client)
+    from aws_util.lambda_ import invoke
+    result = invoke("my-fn", payload={"key": "val"}, log_type="Tail", region_name="us-east-1")
+    assert result.log_result is not None
+    assert "START" in result.log_result
