@@ -684,7 +684,7 @@ def batch_copy(
     with ThreadPoolExecutor(max_workers=min(len(copies), 20)) as pool:
         futures = {pool.submit(_copy, op): op for op in copies}
         for future in as_completed(futures):
-            op = futures[future]
+            futures[future]
             try:
                 future.result()
             except RuntimeError as exc:

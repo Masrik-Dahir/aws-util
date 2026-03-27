@@ -533,7 +533,7 @@ def kinesis_to_s3_snapshot(
 
     try:
         stream_resp = kinesis.describe_stream_summary(StreamName=stream_name)
-        shard_count = stream_resp["StreamDescriptionSummary"]["OpenShardCount"]
+        stream_resp["StreamDescriptionSummary"]["OpenShardCount"]
     except ClientError as exc:
         raise RuntimeError(
             f"Failed to describe Kinesis stream {stream_name!r}: {exc}"

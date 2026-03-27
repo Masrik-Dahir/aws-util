@@ -364,7 +364,7 @@ def extract_form_fields(
         region_name=region_name,
     )
     # Build a lookup of block_id → text for WORD blocks
-    word_map = {b.block_id: b.text for b in blocks if b.block_type == "WORD"}
+    {b.block_id: b.text for b in blocks if b.block_type == "WORD"}
     # KEY_VALUE_SET blocks carry the form data — delegate text via WORD children
     # Because _parse_blocks already flattens, use text directly from KEY blocks
     key_blocks = [b for b in blocks if b.block_type == "KEY_VALUE_SET" and b.text]

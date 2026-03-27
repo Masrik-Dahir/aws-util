@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 from datetime import datetime
 from typing import Any
@@ -310,7 +309,7 @@ def consume_stream(
 
     # Discover all shards
     try:
-        resp = client.describe_stream_summary(StreamName=stream_name)
+        client.describe_stream_summary(StreamName=stream_name)
     except ClientError as exc:
         raise RuntimeError(
             f"Failed to describe stream {stream_name!r}: {exc}"
@@ -327,7 +326,7 @@ def consume_stream(
 
     total_processed = 0
     deadline = _time.monotonic() + duration_seconds
-    lock = __import__("threading").Lock()
+    __import__("threading").Lock()
 
     def _consume_shard(shard_id: str) -> int:
         nonlocal total_processed

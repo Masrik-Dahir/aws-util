@@ -47,10 +47,11 @@ publish      = "task build && python -m twine upload dist/*"
 publish-test = "task build && python -m twine upload --repository testpypi dist/*"
 test         = "pytest tests/ -v"
 test-cov     = "pytest tests/ -v --cov=src/aws_util --cov-report=term-missing"
-lint         = "ruff check src/"
+lint         = "ruff check src/ --fix --unsafe-fixes ."
 format       = "black src/"
 typecheck    = "mypy src/aws_util/"
 release      = "task lint && task test && task publish"
+coverage      = "pytest --cov=src/ --cov-report=term-missing"
 
 [tool.setuptools.packages.find]
 where = ["src"]
