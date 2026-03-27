@@ -4,10 +4,35 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-boto3 = "==1.40.52"
-botocore = "==1.40.52"
+boto3 = "*"
+pydantic = ">=2.0"
+cryptography = ">=42.0"
+anthropic = ">=0.40"
 
 [dev-packages]
+build = "*"
+twine = "*"
+pytest = "*"
+pytest-cov = "*"
+moto = {extras = [
+    "s3", "sqs", "sns", "dynamodb", "ssm", "secretsmanager",
+    "lambda", "cloudwatch", "logs", "sts", "events", "kms",
+    "ec2", "rds", "ecs", "ecr", "iam", "cognito-idp",
+    "route53", "acm", "stepfunctions", "cloudformation",
+    "kinesis", "firehose", "ses", "glue", "athena"
+], version = "*"}
+black = "*"
+ruff = "*"
+mypy = "*"
+boto3-stubs = {extras = [
+    "s3", "sqs", "sns", "dynamodb", "ssm", "secretsmanager",
+    "lambda", "cloudwatch", "logs", "sts", "events", "kms",
+    "ec2", "rds", "ecs", "ecr", "iam", "cognito-idp",
+    "route53", "acm", "stepfunctions", "cloudformation",
+    "kinesis", "firehose", "ses", "glue", "athena",
+    "bedrock-runtime", "bedrock", "rekognition",
+    "textract", "comprehend", "translate"
+], version = "*"}
 
 [requires]
-python_version = "3.14"
+python_version = "3.12"

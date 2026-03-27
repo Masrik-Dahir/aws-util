@@ -4,20 +4,53 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aws-util"
-authors = [ { name = "Masrik Dahir", email = "email@example.com" }]
-version = "0.1.0"
-description = "A utility library for AWS services"
-requires-python = ">=3.6"
+version = "0.3.0"
+description = "A utility library for common AWS services"
+readme = "README.md"
+authors = [{ name = "Masrik Dahir", email = "info@masrikdahir.com" }]
+requires-python = ">=3.10"
 dependencies = [
-    "boto3"
+    "boto3",
+    "pydantic>=2.0",
+    "cryptography>=42.0",
 ]
-
-# If you have an email, uncomment the next line:
-# email = "your_email@example.com"  # Make sure no classification here.
-
-# Define classifiers here, completely separate:
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent"
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Intended Audience :: Developers",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "build",
+    "twine",
+    "taskipy",
+    "pytest",
+    "pytest-cov",
+    "black",
+    "ruff",
+    "mypy",
+    "boto3-stubs[s3,sqs,sns,dynamodb,ssm,secretsmanager,lambda,cloudwatch,logs,sts,events,kms,ec2,rds,ecs,ecr,iam,cognito-idp,route53,acm,stepfunctions,cloudformation,kinesis,firehose,ses,glue,athena,bedrock-runtime,bedrock,rekognition,textract,comprehend,translate]",
+    "moto[s3,sqs,sns,dynamodb,ssm,secretsmanager,lambda,cloudwatch,logs,sts,events,kms,ec2,rds,ecs,ecr,iam,cognito-idp,route53,acm,stepfunctions,cloudformation,kinesis,firehose,ses,glue,athena]",
+]
+
+[tool.taskipy.tasks]
+install      = "pip install -e .[dev]"
+clean        = "python -c \"import shutil, glob; [shutil.rmtree(p, ignore_errors=True) for p in ['dist','build']+glob.glob('src/*.egg-info')]\""
+build        = "task clean && python -m build"
+publish      = "task build && python -m twine upload dist/*"
+publish-test = "task build && python -m twine upload --repository testpypi dist/*"
+test         = "pytest tests/ -v"
+test-cov     = "pytest tests/ -v --cov=src/aws_util --cov-report=term-missing"
+lint         = "ruff check src/"
+format       = "black src/"
+typecheck    = "mypy src/aws_util/"
+release      = "task lint && task test && task publish"
+
+[tool.setuptools.packages.find]
+where = ["src"]

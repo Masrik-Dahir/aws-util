@@ -1,33 +1,3 @@
-Metadata-Version: 2.4
-Name: aws-util
-Version: 0.3.0
-Summary: A utility library for common AWS services
-Author-email: Masrik Dahir <info@masrikdahir.com>
-Classifier: Programming Language :: Python :: 3
-Classifier: Programming Language :: Python :: 3.10
-Classifier: Programming Language :: Python :: 3.11
-Classifier: Programming Language :: Python :: 3.12
-Classifier: License :: OSI Approved :: MIT License
-Classifier: Operating System :: OS Independent
-Classifier: Topic :: Software Development :: Libraries :: Python Modules
-Classifier: Intended Audience :: Developers
-Requires-Python: >=3.10
-Description-Content-Type: text/markdown
-Requires-Dist: boto3
-Requires-Dist: pydantic>=2.0
-Requires-Dist: cryptography>=42.0
-Provides-Extra: dev
-Requires-Dist: build; extra == "dev"
-Requires-Dist: twine; extra == "dev"
-Requires-Dist: taskipy; extra == "dev"
-Requires-Dist: pytest; extra == "dev"
-Requires-Dist: pytest-cov; extra == "dev"
-Requires-Dist: black; extra == "dev"
-Requires-Dist: ruff; extra == "dev"
-Requires-Dist: mypy; extra == "dev"
-Requires-Dist: boto3-stubs[acm,athena,bedrock,bedrock-runtime,cloudformation,cloudwatch,cognito-idp,comprehend,dynamodb,ec2,ecr,ecs,events,firehose,glue,iam,kinesis,kms,lambda,logs,rds,rekognition,route53,s3,secretsmanager,ses,sns,sqs,ssm,stepfunctions,sts,textract,translate]; extra == "dev"
-Requires-Dist: moto[acm,athena,cloudformation,cloudwatch,cognito-idp,dynamodb,ec2,ecr,ecs,events,firehose,glue,iam,kinesis,kms,lambda,logs,rds,route53,s3,secretsmanager,ses,sns,sqs,ssm,stepfunctions,sts]; extra == "dev"
-
 # aws-util
 
 A comprehensive Python utility library for **32+ AWS services**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
