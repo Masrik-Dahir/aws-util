@@ -1,6 +1,6 @@
 # aws-util
 
-**Author:** [Masrik Dahir](https://www.masrikdahir.com/) | [GitHub](https://github.com/Masrik-Dahir/aws-util)
+**Author:** [Masrik Dahir](https://www.masrikdahir.com/) | [GitHub](https://github.com/Masrik-Dahir/aws-util) | [PyPI](https://pypi.org/project/aws-util/)
 
 [![Build](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/build.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/build.yml)
 [![Coverage](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/coverage.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/coverage.yml)
