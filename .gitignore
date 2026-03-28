@@ -67,4 +67,8 @@ desktop.ini
 # ── Logs ─────────────────────────────────────────────────────
 *.log
 logs/
+
+# ── Docs (internal research) ────────────────────────────────
+docs/
+
 /CLAUDE.md
