@@ -25,6 +25,11 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 
+[project.urls]
+Homepage = "https://www.masrikdahir.com"
+Source = "https://github.com/Masrik-Dahir/aws-util"
+Tracker = "https://github.com/Masrik-Dahir/aws-util/issues"
+
 [project.optional-dependencies]
 dev = [
     "build",

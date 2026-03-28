@@ -15,6 +15,14 @@ Multi-service orchestration::
     from aws_util.data_pipeline import run_glue_then_query, export_query_to_s3_json
     from aws_util.resource_ops import reprocess_sqs_dlq, cross_account_s3_copy
     from aws_util.security_ops import audit_public_s3_buckets, rotate_iam_access_key
+
+Lambda middleware::
+
+    from aws_util.lambda_middleware import (
+        idempotent_handler, batch_processor, middleware_chain,
+        lambda_timeout_guard, cold_start_tracker, lambda_response,
+        parse_event, evaluate_feature_flag,
+    )
 """
 
 from __future__ import annotations
