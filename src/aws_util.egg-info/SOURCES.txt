@@ -28,9 +28,11 @@ src/aws_util/parameter_store.py
 src/aws_util/placeholder.py
 src/aws_util/rds.py
 src/aws_util/rekognition.py
+src/aws_util/resource_ops.py
 src/aws_util/route53.py
 src/aws_util/s3.py
 src/aws_util/secrets_manager.py
+src/aws_util/security_ops.py
 src/aws_util/ses.py
 src/aws_util/sns.py
 src/aws_util/sqs.py
@@ -71,9 +73,11 @@ tests/test_parameter_store.py
 tests/test_placeholder.py
 tests/test_rds.py
 tests/test_rekognition.py
+tests/test_resource_ops.py
 tests/test_route53.py
 tests/test_s3.py
 tests/test_secrets_manager.py
+tests/test_security_ops.py
 tests/test_ses.py
 tests/test_sns.py
 tests/test_sqs.py

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: aws-util
-Version: 0.5.0
+Version: 0.6.0
 Summary: A utility library for common AWS services
 Author-email: Masrik Dahir <info@masrikdahir.com>
 Classifier: Programming Language :: Python :: 3
@@ -30,7 +30,12 @@ Requires-Dist: moto[acm,athena,cloudformation,cloudwatch,cognito-idp,dynamodb,ec
 
 # aws-util
 
-A comprehensive Python utility library for **32+ AWS services**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
+[![Build](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/build.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/build.yml)
+[![Coverage](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/coverage.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/coverage.yml)
+[![Lint](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/lint.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/lint.yml)
+[![Test](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/test.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/test.yml)
+
+A comprehensive Python utility library for **32+ AWS services** with **38 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
 
 ## Installation
 
@@ -88,6 +93,8 @@ pip install aws-util
 | 34 | `deployer` | Lambda + ECS + ECR + SSM *(multi-service)* | **`deploy_lambda_with_config`**, **`deploy_ecs_image`**, **`deploy_ecs_from_ecr`**, **`update_lambda_code_from_s3`**, **`update_lambda_alias`** |
 | 35 | `notifier` | SNS + SES + SQS *(multi-service)* | **`send_alert`** (concurrent), **`notify_on_exception`** (decorator), **`broadcast`**, **`resolve_and_notify`** |
 | 36 | `data_pipeline` | S3 + Glue + Athena + Kinesis + DynamoDB + SQS *(multi-service)* | **`run_glue_then_query`**, **`export_query_to_s3_json`**, **`s3_json_to_dynamodb`**, **`s3_jsonl_to_sqs`**, **`kinesis_to_s3_snapshot`**, **`parallel_export`** |
+| 37 | `resource_ops` | SQS + DynamoDB + S3 + SSM + Lambda + ECR + SNS + Athena + STS *(multi-service)* | **`reprocess_sqs_dlq`**, **`backup_dynamodb_to_s3`**, **`sync_ssm_params_to_lambda_env`**, **`delete_stale_ecr_images`**, **`rebuild_athena_partitions`**, **`s3_inventory_to_dynamodb`**, **`cross_account_s3_copy`**, **`rotate_secret_and_notify`**, **`lambda_invoke_with_secret`**, **`publish_s3_keys_to_sqs`** |
+| 38 | `security_ops` | S3 + IAM + KMS + Secrets Manager + SNS + Cognito + SES + SSM + CloudWatch + EC2 + CloudFormation *(multi-service)* | **`audit_public_s3_buckets`**, **`rotate_iam_access_key`**, **`kms_encrypt_to_secret`**, **`iam_roles_report_to_s3`**, **`enforce_bucket_versioning`**, **`cognito_bulk_create_users`**, **`sync_secret_to_ssm`**, **`create_cloudwatch_alarm_with_sns`**, **`tag_ec2_instances_from_ssm`**, **`validate_and_store_cfn_template`** |
 
 ---
 
@@ -1082,6 +1089,70 @@ for r in results:
 
 ---
 
+## Resource Ops *(SQS + DynamoDB + S3 + SSM + Lambda + ECR + Athena + STS)*
+
+```python
+from aws_util.resource_ops import (
+    reprocess_sqs_dlq,
+    backup_dynamodb_to_s3,
+    sync_ssm_params_to_lambda_env,
+    delete_stale_ecr_images,
+    rebuild_athena_partitions,
+    s3_inventory_to_dynamodb,
+    cross_account_s3_copy,
+    rotate_secret_and_notify,
+    lambda_invoke_with_secret,
+    publish_s3_keys_to_sqs,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `reprocess_sqs_dlq` | SQS | Re-drive messages from a dead-letter queue to its target queue |
+| `backup_dynamodb_to_s3` | DynamoDB + S3 | Export a full DynamoDB table scan as a JSON file to S3 |
+| `sync_ssm_params_to_lambda_env` | SSM + Lambda | Copy SSM parameters (by path prefix) into a Lambda's environment variables |
+| `delete_stale_ecr_images` | ECR + SNS | Delete old untagged/excess images from an ECR repo, optionally notify via SNS |
+| `rebuild_athena_partitions` | Athena + S3 | Run `MSCK REPAIR TABLE` and wait for completion |
+| `s3_inventory_to_dynamodb` | S3 + DynamoDB | List S3 objects and write their metadata into a DynamoDB table |
+| `cross_account_s3_copy` | STS + S3 | Assume a role in another account and copy an S3 object cross-account |
+| `rotate_secret_and_notify` | Secrets Manager + SNS | Rotate a secret value and publish a notification |
+| `lambda_invoke_with_secret` | Secrets Manager + Lambda | Fetch a secret, inject it as the Lambda payload, and invoke |
+| `publish_s3_keys_to_sqs` | S3 + SQS | Fan-out S3 object keys (by prefix) as individual SQS messages |
+
+---
+
+## Security Ops *(S3 + IAM + KMS + Secrets Manager + SNS + Cognito + SES + SSM + CloudWatch + EC2 + CloudFormation)*
+
+```python
+from aws_util.security_ops import (
+    audit_public_s3_buckets,
+    rotate_iam_access_key,
+    kms_encrypt_to_secret,
+    iam_roles_report_to_s3,
+    enforce_bucket_versioning,
+    cognito_bulk_create_users,
+    sync_secret_to_ssm,
+    create_cloudwatch_alarm_with_sns,
+    tag_ec2_instances_from_ssm,
+    validate_and_store_cfn_template,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `audit_public_s3_buckets` | S3 + SNS | Scan all buckets for public ACLs; optionally alert via SNS |
+| `rotate_iam_access_key` | IAM + Secrets Manager | Create a new access key, store it in Secrets Manager, delete the old one |
+| `kms_encrypt_to_secret` | KMS + Secrets Manager | Encrypt plaintext with KMS and store the ciphertext as a secret |
+| `iam_roles_report_to_s3` | IAM + S3 | Generate a JSON report of all IAM roles and upload to S3 |
+| `enforce_bucket_versioning` | S3 + SNS | Enable versioning on a list of buckets; optionally notify via SNS |
+| `cognito_bulk_create_users` | Cognito + SES | Bulk-create Cognito users and optionally send welcome emails via SES |
+| `sync_secret_to_ssm` | Secrets Manager + SSM | Copy a secret value into an SSM parameter |
+| `create_cloudwatch_alarm_with_sns` | CloudWatch + SNS | Create a CloudWatch alarm wired to an SNS topic |
+| `tag_ec2_instances_from_ssm` | SSM + EC2 | Read tag values from SSM parameters and apply them to EC2 instances |
+| `validate_and_store_cfn_template` | S3 + CloudFormation | Validate a CloudFormation template from S3 and store the validation result |
+
+---
+
 ## Error handling
 
 | Condition | Exception |
@@ -1138,6 +1209,8 @@ Minimum permissions required per service:
 | deployer | `lambda:UpdateFunctionCode` `lambda:UpdateFunctionConfiguration` `lambda:PublishVersion` `lambda:CreateAlias` `lambda:UpdateAlias` `lambda:GetFunctionConfiguration` `ecs:DescribeServices` `ecs:DescribeTaskDefinition` `ecs:RegisterTaskDefinition` `ecs:UpdateService` `ecs:DescribeContainerInstances` `ecr:DescribeImages` `ecr:DescribeRepositories` |
 | notifier | *(union of SNS `sns:Publish`, SES `ses:SendEmail`, SQS `sqs:SendMessage` plus SSM/Secrets Manager read permissions for `resolve_and_notify`)* |
 | data_pipeline | `glue:StartJobRun` `glue:GetJobRun` `athena:StartQueryExecution` `athena:GetQueryExecution` `athena:GetQueryResults` `kinesis:GetShardIterator` `kinesis:GetRecords` `kinesis:ListShards` `kinesis:DescribeStreamSummary` `dynamodb:BatchWriteItem` `sqs:SendMessage` `s3:GetObject` `s3:PutObject` |
+| resource_ops | `sqs:ReceiveMessage` `sqs:SendMessage` `sqs:DeleteMessage` `dynamodb:Scan` `s3:PutObject` `s3:ListObjectsV2` `s3:GetObject` `ssm:GetParametersByPath` `lambda:UpdateFunctionConfiguration` `lambda:Invoke` `ecr:DescribeImages` `ecr:BatchDeleteImage` `sns:Publish` `athena:StartQueryExecution` `athena:GetQueryExecution` `sts:AssumeRole` `secretsmanager:GetSecretValue` `secretsmanager:PutSecretValue` `dynamodb:BatchWriteItem` |
+| security_ops | `s3:ListBuckets` `s3:GetBucketAcl` `s3:PutBucketVersioning` `s3:GetBucketVersioning` `s3:GetObject` `s3:PutObject` `iam:CreateAccessKey` `iam:DeleteAccessKey` `iam:ListAccessKeys` `iam:ListRoles` `kms:Encrypt` `secretsmanager:CreateSecret` `secretsmanager:GetSecretValue` `secretsmanager:PutSecretValue` `sns:Publish` `sns:CreateTopic` `sns:Subscribe` `cognito-idp:AdminCreateUser` `ses:SendEmail` `ssm:PutParameter` `cloudwatch:PutMetricAlarm` `ec2:CreateTags` `ec2:DescribeInstances` `cloudformation:ValidateTemplate` |
 
 ---
 

@@ -13,6 +13,8 @@ Multi-service orchestration::
     from aws_util.deployer import deploy_lambda_with_config, deploy_ecs_from_ecr
     from aws_util.notifier import send_alert, notify_on_exception
     from aws_util.data_pipeline import run_glue_then_query, export_query_to_s3_json
+    from aws_util.resource_ops import reprocess_sqs_dlq, cross_account_s3_copy
+    from aws_util.security_ops import audit_public_s3_buckets, rotate_iam_access_key
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aws-util"
-version = "0.5.0"
+version = "0.6.0"
 description = "A utility library for common AWS services"
 readme = "README.md"
 authors = [{ name = "Masrik Dahir", email = "info@masrikdahir.com" }]
@@ -41,7 +41,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "0.6.0"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
@@ -65,6 +65,11 @@ prepare         = "task lint && task test && task coverage && task typecheck"
 release         = "task prepare && task publish"
 "release:major" = "task prepare && task publish:major"
 "release:minor" = "task release"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:Core Pydantic V1 functionality:UserWarning",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
