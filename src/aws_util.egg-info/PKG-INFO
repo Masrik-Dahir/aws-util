@@ -1,8 +1,11 @@
 Metadata-Version: 2.4
 Name: aws-util
-Version: 0.6.0
+Version: 0.7.0
 Summary: A utility library for common AWS services
 Author-email: Masrik Dahir <info@masrikdahir.com>
+Project-URL: Homepage, https://www.masrikdahir.com
+Project-URL: Source, https://github.com/Masrik-Dahir/aws-util
+Project-URL: Tracker, https://github.com/Masrik-Dahir/aws-util/issues
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
@@ -30,12 +33,14 @@ Requires-Dist: moto[acm,athena,cloudformation,cloudwatch,cognito-idp,dynamodb,ec
 
 # aws-util
 
+**Author:** [Masrik Dahir](https://www.masrikdahir.com/) | [GitHub](https://github.com/Masrik-Dahir/aws-util) | [PyPI](https://pypi.org/project/aws-util/)
+
 [![Build](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/build.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/build.yml)
 [![Coverage](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/coverage.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/coverage.yml)
 [![Lint](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/lint.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/lint.yml)
 [![Test](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/test.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/test.yml)
 
-A comprehensive Python utility library for **32+ AWS services** with **38 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
+A comprehensive Python utility library for **32+ AWS services** with **39 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
 
 ## Installation
 
@@ -95,6 +100,7 @@ pip install aws-util
 | 36 | `data_pipeline` | S3 + Glue + Athena + Kinesis + DynamoDB + SQS *(multi-service)* | **`run_glue_then_query`**, **`export_query_to_s3_json`**, **`s3_json_to_dynamodb`**, **`s3_jsonl_to_sqs`**, **`kinesis_to_s3_snapshot`**, **`parallel_export`** |
 | 37 | `resource_ops` | SQS + DynamoDB + S3 + SSM + Lambda + ECR + SNS + Athena + STS *(multi-service)* | **`reprocess_sqs_dlq`**, **`backup_dynamodb_to_s3`**, **`sync_ssm_params_to_lambda_env`**, **`delete_stale_ecr_images`**, **`rebuild_athena_partitions`**, **`s3_inventory_to_dynamodb`**, **`cross_account_s3_copy`**, **`rotate_secret_and_notify`**, **`lambda_invoke_with_secret`**, **`publish_s3_keys_to_sqs`** |
 | 38 | `security_ops` | S3 + IAM + KMS + Secrets Manager + SNS + Cognito + SES + SSM + CloudWatch + EC2 + CloudFormation *(multi-service)* | **`audit_public_s3_buckets`**, **`rotate_iam_access_key`**, **`kms_encrypt_to_secret`**, **`iam_roles_report_to_s3`**, **`enforce_bucket_versioning`**, **`cognito_bulk_create_users`**, **`sync_secret_to_ssm`**, **`create_cloudwatch_alarm_with_sns`**, **`tag_ec2_instances_from_ssm`**, **`validate_and_store_cfn_template`** |
+| 39 | `lambda_middleware` | Lambda + DynamoDB + SQS + CloudWatch + SSM *(multi-service)* | **`idempotent_handler`**, **`batch_processor`**, **`middleware_chain`**, **`lambda_timeout_guard`**, **`cold_start_tracker`**, **`lambda_response`**, **`cors_preflight`**, **`parse_event`**, **`evaluate_feature_flag`**, **`evaluate_feature_flags`** |
 
 ---
 
@@ -1153,6 +1159,38 @@ from aws_util.security_ops import (
 
 ---
 
+## Lambda Middleware *(Lambda + DynamoDB + SQS + CloudWatch + SSM)*
+
+```python
+from aws_util.lambda_middleware import (
+    idempotent_handler,
+    batch_processor,
+    middleware_chain,
+    lambda_timeout_guard,
+    cold_start_tracker,
+    lambda_response,
+    cors_preflight,
+    parse_event,
+    evaluate_feature_flag,
+    evaluate_feature_flags,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `idempotent_handler` | Lambda + DynamoDB | Decorator preventing duplicate side effects by caching results in DynamoDB keyed by event hash |
+| `batch_processor` | Lambda + SQS/Kinesis/DDB Streams | Process batch records individually with partial failure responses for automatic retry of failed records |
+| `middleware_chain` | Lambda | Build composable before/after middleware pipelines for Lambda handlers |
+| `lambda_timeout_guard` | Lambda + SQS | Process items with timeout check; push unfinished work to SQS before Lambda times out |
+| `cold_start_tracker` | Lambda + CloudWatch | Decorator emitting a `ColdStart` CloudWatch metric (1 = cold, 0 = warm) per invocation |
+| `lambda_response` | Lambda + API Gateway | Build standardised API Gateway proxy responses with CORS headers and JSON serialisation |
+| `cors_preflight` | Lambda + API Gateway | Generate CORS preflight (OPTIONS) responses with configurable origins, methods, and headers |
+| `parse_event` | Lambda | Parse raw Lambda events into typed Pydantic models (API GW, SQS, SNS, S3, EventBridge, DynamoDB Stream, Kinesis) |
+| `evaluate_feature_flag` | Lambda + SSM | Evaluate a single feature flag from SSM Parameter Store |
+| `evaluate_feature_flags` | Lambda + SSM | Evaluate multiple feature flags from SSM Parameter Store |
+
+---
+
 ## Error handling
 
 | Condition | Exception |
@@ -1211,6 +1249,7 @@ Minimum permissions required per service:
 | data_pipeline | `glue:StartJobRun` `glue:GetJobRun` `athena:StartQueryExecution` `athena:GetQueryExecution` `athena:GetQueryResults` `kinesis:GetShardIterator` `kinesis:GetRecords` `kinesis:ListShards` `kinesis:DescribeStreamSummary` `dynamodb:BatchWriteItem` `sqs:SendMessage` `s3:GetObject` `s3:PutObject` |
 | resource_ops | `sqs:ReceiveMessage` `sqs:SendMessage` `sqs:DeleteMessage` `dynamodb:Scan` `s3:PutObject` `s3:ListObjectsV2` `s3:GetObject` `ssm:GetParametersByPath` `lambda:UpdateFunctionConfiguration` `lambda:Invoke` `ecr:DescribeImages` `ecr:BatchDeleteImage` `sns:Publish` `athena:StartQueryExecution` `athena:GetQueryExecution` `sts:AssumeRole` `secretsmanager:GetSecretValue` `secretsmanager:PutSecretValue` `dynamodb:BatchWriteItem` |
 | security_ops | `s3:ListBuckets` `s3:GetBucketAcl` `s3:PutBucketVersioning` `s3:GetBucketVersioning` `s3:GetObject` `s3:PutObject` `iam:CreateAccessKey` `iam:DeleteAccessKey` `iam:ListAccessKeys` `iam:ListRoles` `kms:Encrypt` `secretsmanager:CreateSecret` `secretsmanager:GetSecretValue` `secretsmanager:PutSecretValue` `sns:Publish` `sns:CreateTopic` `sns:Subscribe` `cognito-idp:AdminCreateUser` `ses:SendEmail` `ssm:PutParameter` `cloudwatch:PutMetricAlarm` `ec2:CreateTags` `ec2:DescribeInstances` `cloudformation:ValidateTemplate` |
+| lambda_middleware | `dynamodb:GetItem` `dynamodb:PutItem` `sqs:SendMessage` `cloudwatch:PutMetricData` `ssm:GetParameter` |
 
 ---
 

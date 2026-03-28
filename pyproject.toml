@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aws-util"
-version = "0.6.0"
+version = "0.7.0"
 description = "A utility library for common AWS services"
 readme = "README.md"
 authors = [{ name = "Masrik Dahir", email = "info@masrikdahir.com" }]
@@ -56,7 +56,7 @@ ignore = ["E501"] # Ignore line-length if you prefer
 install         = "pip install -e .[dev]"
 clean           = "python -c \"import shutil, glob; [shutil.rmtree(p, ignore_errors=True) for p in ['dist','build']+glob.glob('src/*.egg-info')]\""
 build           = "task clean && python -m build"
-bump            = "python -c \"import re; from pathlib import Path; p = Path('pyproject.toml'); content = p.read_text(); v = re.search(r'^version = \\\"(\\d+)\\.(\\d+)\\.(\\d+)\\\"', content, re.MULTILINE); major, minor, patch = map(int, v.groups()); new_v = f'{major+1}.0.0' if 'major' in '$npm_config_argv' or 'major' in '{{args}}' else f'{major}.{minor+1}.0'; p.write_text(re.sub(r'^version = \\\".*?\\\"', f'version = \\\"{new_v}\\\"', content, count=1, flags=re.MULTILINE)); print(f'Bumped to {new_v}')\""
+bump            = "python -c \"import re, sys; from pathlib import Path; p = Path('pyproject.toml'); content = p.read_text(); v = re.search(r'^version = \\\"(\\d+)\\.(\\d+)\\.(\\d+)\\\"', content, re.MULTILINE); major, minor, patch = map(int, v.groups()); new_v = f'{major+1}.0.0' if 'major' in sys.argv else f'{major}.{minor+1}.0'; p.write_text(re.sub(r'^version = \\\".*?\\\"', f'version = \\\"{new_v}\\\"', content, count=1, flags=re.MULTILINE)); print(f'Bumped to {new_v}')\""
 publish         = "task bump minor && task build && python -m twine upload dist/*"
 "publish:major" = "task bump major && task build && python -m twine upload dist/*"
 "publish:minor" = "task publish"

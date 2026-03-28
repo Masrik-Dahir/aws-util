@@ -23,6 +23,7 @@ src/aws_util/iam.py
 src/aws_util/kinesis.py
 src/aws_util/kms.py
 src/aws_util/lambda_.py
+src/aws_util/lambda_middleware.py
 src/aws_util/notifier.py
 src/aws_util/parameter_store.py
 src/aws_util/placeholder.py
@@ -68,6 +69,7 @@ tests/test_init.py
 tests/test_kinesis.py
 tests/test_kms.py
 tests/test_lambda_.py
+tests/test_lambda_middleware.py
 tests/test_notifier.py
 tests/test_parameter_store.py
 tests/test_placeholder.py
