@@ -20,6 +20,7 @@ jobs:
           python -m pip install --upgrade pip
           # Use --prefer-binary to speed up installation of heavy packages like cryptography
           pip install --prefer-binary -e .[dev]
+          pip install pytest-gremlins
 
       - name: Run tests
         run: |
