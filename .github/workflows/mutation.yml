@@ -12,12 +12,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          # Using the built-in pip cache helps significantly with large dependency sets
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
+          # Use --prefer-binary to speed up installation of heavy packages like cryptography
+          pip install --prefer-binary -e .[dev]
 
-      - name: Run tests
-        run: pytest tests/test_security_compliance.py --gremlins
+      - name: Run Mutation Tests
+        # Ensure 'pytest-gremlins' or your specific mutation tool is in your [dev] requirements
+        run: |
+          pytest tests/test_security_compliance.py --gremlins
