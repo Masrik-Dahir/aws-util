@@ -19,6 +19,7 @@ twine = "*"
 # Testing
 pytest = "*"
 pytest-cov = "*"
+pytest-gremlins = "*"
 moto = {extras = [
     "s3", "s3crc32c",
     "dynamodb", "dynamodbstreams",
