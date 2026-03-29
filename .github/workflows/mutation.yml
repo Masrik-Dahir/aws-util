@@ -24,5 +24,4 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest --trace-config # This will show all active plugins
-          pytest tests/test_security_compliance.py --gremlins
+          pytest tests/ --gremlins
