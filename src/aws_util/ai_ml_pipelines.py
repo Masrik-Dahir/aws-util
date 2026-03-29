@@ -130,9 +130,7 @@ def bedrock_serverless_chain(
     context = ""
 
     for idx, prompt in enumerate(prompts):
-        full_prompt = (
-            f"{context}\n\n{prompt}" if context else prompt
-        )
+        full_prompt = f"{context}\n\n{prompt}" if context else prompt
 
         body = json.dumps(
             {
@@ -152,14 +150,10 @@ def bedrock_serverless_chain(
                 accept="application/json",
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Bedrock invocation failed at step {idx}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Bedrock invocation failed at step {idx}: {exc}") from exc
 
         resp_body = json.loads(resp["body"].read())
-        output_text = resp_body.get("content", [{}])[0].get(
-            "text", ""
-        )
+        output_text = resp_body.get("content", [{}])[0].get("text", "")
         outputs.append(output_text)
         context = output_text
 
@@ -182,9 +176,7 @@ def bedrock_serverless_chain(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to store conversation {conversation_id}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to store conversation {conversation_id}: {exc}") from exc
 
     return BedrockChainResult(
         conversation_id=conversation_id,
@@ -234,19 +226,13 @@ def s3_document_processor(
         resp = s3.get_object(Bucket=bucket, Key=key)
         doc_bytes = resp["Body"].read()
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to read s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
 
     # Extract text with Textract
     try:
-        textract_resp = textract.detect_document_text(
-            Document={"Bytes": doc_bytes}
-        )
+        textract_resp = textract.detect_document_text(Document={"Bytes": doc_bytes})
     except ClientError as exc:
-        raise RuntimeError(
-            f"Textract extraction failed for {key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Textract extraction failed for {key}: {exc}") from exc
 
     lines = [
         block["Text"]
@@ -262,9 +248,7 @@ def s3_document_processor(
             LanguageCode="en",
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Comprehend sentiment analysis failed: {exc}"
-        ) from exc
+        raise RuntimeError(f"Comprehend sentiment analysis failed: {exc}") from exc
 
     sentiment = sentiment_resp.get("Sentiment", "UNKNOWN")
     sentiment_scores = sentiment_resp.get("SentimentScore", {})
@@ -276,9 +260,7 @@ def s3_document_processor(
             LanguageCode="en",
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Comprehend entity detection failed: {exc}"
-        ) from exc
+        raise RuntimeError(f"Comprehend entity detection failed: {exc}") from exc
 
     entities = entity_resp.get("Entities", [])
 
@@ -299,9 +281,7 @@ def s3_document_processor(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to store results for {key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to store results for {key}: {exc}") from exc
 
     return DocumentProcessorResult(
         bucket=bucket,
@@ -357,9 +337,7 @@ def image_moderation_pipeline(
         resp = s3.get_object(Bucket=bucket, Key=key)
         image_bytes = resp["Body"].read()
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to read s3://{bucket}/{key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
 
     # Rekognition moderation labels
     try:
@@ -368,9 +346,7 @@ def image_moderation_pipeline(
             MinConfidence=confidence_threshold,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Rekognition moderation failed for {key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Rekognition moderation failed for {key}: {exc}") from exc
 
     moderation_labels = mod_resp.get("ModerationLabels", [])
 
@@ -381,9 +357,7 @@ def image_moderation_pipeline(
             MaxLabels=20,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Rekognition label detection failed for {key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Rekognition label detection failed for {key}: {exc}") from exc
 
     labels = label_resp.get("Labels", [])
 
@@ -396,9 +370,7 @@ def image_moderation_pipeline(
             Item={
                 "pk": {"S": f"image#{bucket}/{key}"},
                 "moderation_labels": {
-                    "S": json.dumps(
-                        moderation_labels, default=str
-                    ),
+                    "S": json.dumps(moderation_labels, default=str),
                 },
                 "labels": {
                     "S": json.dumps(labels, default=str),
@@ -407,9 +379,7 @@ def image_moderation_pipeline(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to store results for {key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to store results for {key}: {exc}") from exc
 
     # Send SNS alert if flagged
     alert_sent = False
@@ -432,9 +402,7 @@ def image_moderation_pipeline(
             alert_sent = True
             message_id = alert_resp.get("MessageId")
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to send moderation alert: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to send moderation alert: {exc}") from exc
 
     return ImageModerationResult(
         bucket=bucket,
@@ -495,9 +463,7 @@ def translation_pipeline(
             resp = s3.get_object(Bucket=bucket, Key=src_key)
             text = resp["Body"].read().decode("utf-8")
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to read s3://{bucket}/{src_key}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to read s3://{bucket}/{src_key}: {exc}") from exc
 
         # Translate
         try:
@@ -507,14 +473,10 @@ def translation_pipeline(
                 TargetLanguageCode=target_language,
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Translation failed for {src_key}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Translation failed for {src_key}: {exc}") from exc
 
         translated_text = trans_resp.get("TranslatedText", "")
-        detected_source = trans_resp.get(
-            "SourceLanguageCode", source_language
-        )
+        detected_source = trans_resp.get("SourceLanguageCode", source_language)
 
         # Store translated text in S3
         out_key = f"{output_prefix}{target_language}/{src_key}"
@@ -526,9 +488,7 @@ def translation_pipeline(
                 ContentType="text/plain",
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to write s3://{bucket}/{out_key}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to write s3://{bucket}/{out_key}: {exc}") from exc
 
         output_keys.append(out_key)
 
@@ -550,9 +510,7 @@ def translation_pipeline(
                 },
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to store metadata for {src_key}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to store metadata for {src_key}: {exc}") from exc
 
         translated_count += 1
 
@@ -610,9 +568,7 @@ def embedding_indexer(
                 accept="application/json",
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Bedrock embedding failed for item {idx}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Bedrock embedding failed for item {idx}: {exc}") from exc
 
         resp_body = json.loads(resp["body"].read())
         embedding = resp_body.get("embedding", [])
@@ -638,9 +594,7 @@ def embedding_indexer(
                 },
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to store embedding for item {idx}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to store embedding for item {idx}: {exc}") from exc
 
         items_indexed += 1
 

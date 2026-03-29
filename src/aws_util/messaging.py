@@ -164,10 +164,7 @@ def multi_channel_notifier(
                     channel_type=ch.channel_type,
                     target=ch.target,
                     success=False,
-                    error=(
-                        f"Unsupported channel type: "
-                        f"{ch.channel_type}"
-                    ),
+                    error=(f"Unsupported channel type: {ch.channel_type}"),
                 )
         except ClientError as exc:
             result = ChannelResult(
@@ -297,9 +294,7 @@ def event_deduplicator(
             Key={"pk": {"S": f"event#{event_id}"}},
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to check event {event_id}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to check event {event_id}: {exc}") from exc
 
     if resp.get("Item") is not None:
         logger.info("Event %s is a duplicate", event_id)
@@ -320,9 +315,7 @@ def event_deduplicator(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to store event {event_id}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to store event {event_id}: {exc}") from exc
 
     logger.info("Event %s recorded (TTL=%d)", event_id, ttl_value)
     return EventDeduplicationResult(
@@ -366,15 +359,10 @@ def sns_filter_policy_manager(
         RuntimeError: If the SNS API call fails.
     """
     if action not in ("set", "get", "remove"):
-        raise ValueError(
-            f"Invalid action '{action}'; must be 'set', "
-            f"'get', or 'remove'."
-        )
+        raise ValueError(f"Invalid action '{action}'; must be 'set', 'get', or 'remove'.")
 
     if action == "set" and filter_policy is None:
-        raise ValueError(
-            "filter_policy is required when action is 'set'."
-        )
+        raise ValueError("filter_policy is required when action is 'set'.")
 
     client = get_client("sns", region_name=region_name)
 
@@ -386,13 +374,8 @@ def sns_filter_policy_manager(
                 AttributeValue=json.dumps(filter_policy),
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to set filter policy on "
-                f"{subscription_arn}: {exc}"
-            ) from exc
-        logger.info(
-            "Set filter policy on %s", subscription_arn
-        )
+            raise RuntimeError(f"Failed to set filter policy on {subscription_arn}: {exc}") from exc
+        logger.info("Set filter policy on %s", subscription_arn)
         return FilterPolicyResult(
             subscription_arn=subscription_arn,
             action="set",
@@ -406,8 +389,7 @@ def sns_filter_policy_manager(
             )
         except ClientError as exc:
             raise RuntimeError(
-                f"Failed to get filter policy for "
-                f"{subscription_arn}: {exc}"
+                f"Failed to get filter policy for {subscription_arn}: {exc}"
             ) from exc
         attrs = resp.get("Attributes", {})
         raw_policy = attrs.get("FilterPolicy")
@@ -427,12 +409,9 @@ def sns_filter_policy_manager(
         )
     except ClientError as exc:
         raise RuntimeError(
-            f"Failed to remove filter policy from "
-            f"{subscription_arn}: {exc}"
+            f"Failed to remove filter policy from {subscription_arn}: {exc}"
         ) from exc
-    logger.info(
-        "Removed filter policy from %s", subscription_arn
-    )
+    logger.info("Removed filter policy from %s", subscription_arn)
     return FilterPolicyResult(
         subscription_arn=subscription_arn,
         action="remove",
@@ -473,9 +452,7 @@ def sqs_fifo_sequencer(
         RuntimeError: If the SQS send fails.
     """
     if deduplication_id is None:
-        deduplication_id = hashlib.sha256(
-            message_body.encode()
-        ).hexdigest()
+        deduplication_id = hashlib.sha256(message_body.encode()).hexdigest()
 
     client = get_client("sqs", region_name=region_name)
     try:
@@ -486,10 +463,7 @@ def sqs_fifo_sequencer(
             MessageDeduplicationId=deduplication_id,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to send FIFO message to "
-            f"{queue_url}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to send FIFO message to {queue_url}: {exc}") from exc
 
     logger.info(
         "Sent FIFO message to %s (group=%s, dedup=%s)",
@@ -569,10 +543,7 @@ def batch_notification_digester(
                 },
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to accumulate event "
-                f"{event.event_id}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to accumulate event {event.event_id}: {exc}") from exc
         logger.info(
             "Accumulated event %s into digest %s",
             event.event_id,
@@ -589,14 +560,9 @@ def batch_notification_digester(
 
     # Validate flush parameters
     if flush_target is None:
-        raise ValueError(
-            "flush_target is required when flush is True."
-        )
+        raise ValueError("flush_target is required when flush is True.")
     if flush_channel not in ("sns", "ses"):
-        raise ValueError(
-            f"Invalid flush_channel '{flush_channel}'; "
-            f"must be 'sns' or 'ses'."
-        )
+        raise ValueError(f"Invalid flush_channel '{flush_channel}'; must be 'sns' or 'ses'.")
 
     # Query accumulated events
     try:
@@ -608,10 +574,7 @@ def batch_notification_digester(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to query digest events for "
-            f"{digest_key}: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to query digest events for {digest_key}: {exc}") from exc
 
     items = resp.get("Items", [])
     if not items:
@@ -644,9 +607,7 @@ def batch_notification_digester(
             )
             message_id = send_resp.get("MessageId")
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to send digest via SNS: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to send digest via SNS: {exc}") from exc
     else:
         ses = get_client("ses", region_name=region_name)
         sender = flush_sender or "noreply@example.com"
@@ -661,9 +622,7 @@ def batch_notification_digester(
             )
             message_id = send_resp.get("MessageId")
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to send digest via SES: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to send digest via SES: {exc}") from exc
 
     # Delete accumulated events
     for item in items:

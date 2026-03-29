@@ -166,13 +166,9 @@ def scheduled_scaling_manager(
         RuntimeError: If the API call fails.
     """
     if action not in ("create", "delete"):
-        raise ValueError(
-            f"action must be 'create' or 'delete', got '{action}'"
-        )
+        raise ValueError(f"action must be 'create' or 'delete', got '{action}'")
 
-    client = get_client(
-        "application-autoscaling", region_name=region_name
-    )
+    client = get_client("application-autoscaling", region_name=region_name)
 
     if action == "create":
         if schedule is None:
@@ -193,8 +189,7 @@ def scheduled_scaling_manager(
             )
         except ClientError as exc:
             raise RuntimeError(
-                f"Failed to create scheduled action "
-                f"'{scheduled_action_name}': {exc}"
+                f"Failed to create scheduled action '{scheduled_action_name}': {exc}"
             ) from exc
     else:
         try:
@@ -206,8 +201,7 @@ def scheduled_scaling_manager(
             )
         except ClientError as exc:
             raise RuntimeError(
-                f"Failed to delete scheduled action "
-                f"'{scheduled_action_name}': {exc}"
+                f"Failed to delete scheduled action '{scheduled_action_name}': {exc}"
             ) from exc
 
     logger.info(
@@ -253,12 +247,8 @@ def stack_output_resolver(
         ValueError: If neither resolution method is specified.
         RuntimeError: If the stack or export cannot be found.
     """
-    if export_name is None and (
-        stack_name is None or output_key is None
-    ):
-        raise ValueError(
-            "Provide either (stack_name + output_key) or export_name"
-        )
+    if export_name is None and (stack_name is None or output_key is None):
+        raise ValueError("Provide either (stack_name + output_key) or export_name")
 
     cfn = get_client("cloudformation", region_name=region_name)
 
@@ -274,20 +264,14 @@ def stack_output_resolver(
                             source="export",
                         )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to list exports: {exc}"
-            ) from exc
-        raise RuntimeError(
-            f"Export '{export_name}' not found"
-        )
+            raise RuntimeError(f"Failed to list exports: {exc}") from exc
+        raise RuntimeError(f"Export '{export_name}' not found")
 
     # stack_name + output_key path
     try:
         resp = cfn.describe_stacks(StackName=stack_name)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to describe stack '{stack_name}': {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to describe stack '{stack_name}': {exc}") from exc
 
     stacks = resp.get("Stacks", [])
     if not stacks:
@@ -302,9 +286,7 @@ def stack_output_resolver(
                 source="stack_output",
             )
 
-    raise RuntimeError(
-        f"Output '{output_key}' not found in stack '{stack_name}'"
-    )
+    raise RuntimeError(f"Output '{output_key}' not found in stack '{stack_name}'")
 
 
 # ---------------------------------------------------------------------------
@@ -359,18 +341,11 @@ def resource_cleanup_scheduler(
             )
         except ClientError as exc:
             raise RuntimeError(
-                f"Failed to list Lambda versions for "
-                f"'{lambda_function_name}': {exc}"
+                f"Failed to list Lambda versions for '{lambda_function_name}': {exc}"
             ) from exc
 
-        versions = [
-            v
-            for v in resp.get("Versions", [])
-            if v["Version"] != "$LATEST"
-        ]
-        versions.sort(
-            key=lambda v: int(v["Version"]), reverse=True
-        )
+        versions = [v for v in resp.get("Versions", []) if v["Version"] != "$LATEST"]
+        versions.sort(key=lambda v: int(v["Version"]), reverse=True)
         to_delete = versions[keep_n_versions:]
 
         for ver in to_delete:
@@ -396,14 +371,11 @@ def resource_cleanup_scheduler(
                 TableName=dynamodb_table_name,
                 FilterExpression="#t < :now",
                 ExpressionAttributeNames={"#t": ttl_attribute},
-                ExpressionAttributeValues={
-                    ":now": {"N": str(now)}
-                },
+                ExpressionAttributeValues={":now": {"N": str(now)}},
             )
         except ClientError as exc:
             raise RuntimeError(
-                f"Failed to scan DynamoDB table "
-                f"'{dynamodb_table_name}': {exc}"
+                f"Failed to scan DynamoDB table '{dynamodb_table_name}': {exc}"
             ) from exc
 
         for item in resp.get("Items", []):
@@ -417,22 +389,17 @@ def resource_cleanup_scheduler(
                 )
                 ddb_deleted += 1
             except ClientError as exc:
-                logger.warning(
-                    "Failed to delete DynamoDB item: %s", exc
-                )
+                logger.warning("Failed to delete DynamoDB item: %s", exc)
 
     # --- S3 object cleanup ---
     if s3_bucket is not None:
         s3 = get_client("s3", region_name=region_name)
         cutoff = time.time() - (max_age_days * 86400)
         try:
-            resp = s3.list_objects_v2(
-                Bucket=s3_bucket, Prefix=s3_prefix
-            )
+            resp = s3.list_objects_v2(Bucket=s3_bucket, Prefix=s3_prefix)
         except ClientError as exc:
             raise RuntimeError(
-                f"Failed to list S3 objects in "
-                f"'{s3_bucket}/{s3_prefix}': {exc}"
+                f"Failed to list S3 objects in '{s3_bucket}/{s3_prefix}': {exc}"
             ) from exc
 
         for obj in resp.get("Contents", []):
@@ -442,9 +409,7 @@ def resource_cleanup_scheduler(
             ts = last_mod.timestamp()
             if ts < cutoff:
                 try:
-                    s3.delete_object(
-                        Bucket=s3_bucket, Key=obj["Key"]
-                    )
+                    s3.delete_object(Bucket=s3_bucket, Key=obj["Key"])
                     s3_deleted += 1
                 except ClientError as exc:
                     logger.warning(
@@ -525,9 +490,7 @@ def multi_region_failover(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create health check: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create health check: {exc}") from exc
 
     health_check_id = hc_resp["HealthCheck"]["Id"]
 
@@ -544,9 +507,7 @@ def multi_region_failover(
                             "SetIdentifier": "primary",
                             "Failover": "PRIMARY",
                             "TTL": 60,
-                            "ResourceRecords": [
-                                {"Value": primary_target}
-                            ],
+                            "ResourceRecords": [{"Value": primary_target}],
                             "HealthCheckId": health_check_id,
                         },
                     },
@@ -558,18 +519,14 @@ def multi_region_failover(
                             "SetIdentifier": "secondary",
                             "Failover": "SECONDARY",
                             "TTL": 60,
-                            "ResourceRecords": [
-                                {"Value": failover_target}
-                            ],
+                            "ResourceRecords": [{"Value": failover_target}],
                         },
                     },
                 ],
             },
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create failover records: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create failover records: {exc}") from exc
 
     logger.info(
         "Multi-region failover configured: %s -> %s / %s",
@@ -603,11 +560,7 @@ def _extract_iam_resources(
         "AWS::IAM::User",
         "AWS::IAM::Group",
     }
-    return {
-        k: v
-        for k, v in resources.items()
-        if v.get("Type") in iam_types
-    }
+    return {k: v for k, v in resources.items() if v.get("Type") in iam_types}
 
 
 def infrastructure_diff_reporter(
@@ -641,43 +594,30 @@ def infrastructure_diff_reporter(
     """
     if template_a is None and s3_key_a is not None:
         if s3_bucket is None:
-            raise ValueError(
-                "s3_bucket is required when using s3_key_a"
-            )
+            raise ValueError("s3_bucket is required when using s3_key_a")
         s3 = get_client("s3", region_name=region_name)
         try:
             resp = s3.get_object(Bucket=s3_bucket, Key=s3_key_a)
-            template_a = json.loads(
-                resp["Body"].read().decode("utf-8")
-            )
+            template_a = json.loads(resp["Body"].read().decode("utf-8"))
         except ClientError as exc:
             raise RuntimeError(
-                f"Failed to load template from "
-                f"s3://{s3_bucket}/{s3_key_a}: {exc}"
+                f"Failed to load template from s3://{s3_bucket}/{s3_key_a}: {exc}"
             ) from exc
 
     if template_b is None and s3_key_b is not None:
         if s3_bucket is None:
-            raise ValueError(
-                "s3_bucket is required when using s3_key_b"
-            )
+            raise ValueError("s3_bucket is required when using s3_key_b")
         s3 = get_client("s3", region_name=region_name)
         try:
             resp = s3.get_object(Bucket=s3_bucket, Key=s3_key_b)
-            template_b = json.loads(
-                resp["Body"].read().decode("utf-8")
-            )
+            template_b = json.loads(resp["Body"].read().decode("utf-8"))
         except ClientError as exc:
             raise RuntimeError(
-                f"Failed to load template from "
-                f"s3://{s3_bucket}/{s3_key_b}: {exc}"
+                f"Failed to load template from s3://{s3_bucket}/{s3_key_b}: {exc}"
             ) from exc
 
     if template_a is None or template_b is None:
-        raise ValueError(
-            "Both template_a and template_b must be provided "
-            "(inline or via S3)"
-        )
+        raise ValueError("Both template_a and template_b must be provided (inline or via S3)")
 
     resources_a = template_a.get("Resources", {})
     resources_b = template_b.get("Resources", {})
@@ -762,17 +702,13 @@ def lambda_vpc_connector(
     try:
         resp = ec2.describe_subnets(SubnetIds=subnet_ids)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to validate subnets: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to validate subnets: {exc}") from exc
 
     subnets = resp.get("Subnets", [])
     if len(subnets) != len(subnet_ids):
         found = {s["SubnetId"] for s in subnets}
         missing = set(subnet_ids) - found
-        raise RuntimeError(
-            f"Subnets not found: {sorted(missing)}"
-        )
+        raise RuntimeError(f"Subnets not found: {sorted(missing)}")
 
     vpc_id = subnets[0]["VpcId"]
 
@@ -782,17 +718,13 @@ def lambda_vpc_connector(
             GroupIds=security_group_ids,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to validate security groups: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to validate security groups: {exc}") from exc
 
     sgs = resp.get("SecurityGroups", [])
     if len(sgs) != len(security_group_ids):
         found = {s["GroupId"] for s in sgs}
         missing = set(security_group_ids) - found
-        raise RuntimeError(
-            f"Security groups not found: {sorted(missing)}"
-        )
+        raise RuntimeError(f"Security groups not found: {sorted(missing)}")
 
     # Apply VPC config to Lambda
     lam = get_client("lambda", region_name=region_name)
@@ -805,10 +737,7 @@ def lambda_vpc_connector(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to configure VPC for "
-            f"'{function_name}': {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to configure VPC for '{function_name}': {exc}") from exc
 
     logger.info(
         "Lambda %s configured with VPC %s",
@@ -866,10 +795,7 @@ def api_gateway_stage_manager(
             description=description,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create deployment for "
-            f"'{rest_api_id}': {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to create deployment for '{rest_api_id}': {exc}") from exc
 
     deployment_id = deploy_resp["id"]
 
@@ -910,13 +836,10 @@ def api_gateway_stage_manager(
                 )
             except ClientError as update_exc:
                 raise RuntimeError(
-                    f"Failed to update stage "
-                    f"'{stage_name}': {update_exc}"
+                    f"Failed to update stage '{stage_name}': {update_exc}"
                 ) from update_exc
         else:
-            raise RuntimeError(
-                f"Failed to create stage '{stage_name}': {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to create stage '{stage_name}': {exc}") from exc
 
     # Apply method throttling
     if method_throttling:
@@ -928,10 +851,7 @@ def api_gateway_stage_manager(
                 patch_ops.append(
                     {
                         "op": "replace",
-                        "path": (
-                            f"/{path_method}/throttling"
-                            f"/burstLimit"
-                        ),
+                        "path": (f"/{path_method}/throttling/burstLimit"),
                         "value": str(int(burst)),
                     }
                 )
@@ -939,10 +859,7 @@ def api_gateway_stage_manager(
                 patch_ops.append(
                     {
                         "op": "replace",
-                        "path": (
-                            f"/{path_method}/throttling"
-                            f"/rateLimit"
-                        ),
+                        "path": (f"/{path_method}/throttling/rateLimit"),
                         "value": str(rate),
                     }
                 )
@@ -954,10 +871,7 @@ def api_gateway_stage_manager(
                     patchOperations=patch_ops,
                 )
             except ClientError as exc:
-                raise RuntimeError(
-                    f"Failed to apply throttling to "
-                    f"'{stage_name}': {exc}"
-                ) from exc
+                raise RuntimeError(f"Failed to apply throttling to '{stage_name}': {exc}") from exc
 
     logger.info(
         "API Gateway stage '%s' managed for API '%s'",
@@ -1007,17 +921,13 @@ def custom_resource_handler(
     """
     request_type = event.get("RequestType", "")
     resource_properties = event.get("ResourceProperties", {})
-    physical_id = event.get(
-        "PhysicalResourceId", default_physical_id
-    )
+    physical_id = event.get("PhysicalResourceId", default_physical_id)
 
     handler = handlers.get(request_type)
     if handler is None:
         return CustomResourceResponse(
             status="FAILED",
-            reason=(
-                f"Unsupported RequestType: '{request_type}'"
-            ),
+            reason=(f"Unsupported RequestType: '{request_type}'"),
             physical_resource_id=physical_id,
         )
 
@@ -1035,9 +945,7 @@ def custom_resource_handler(
             physical_resource_id=physical_id,
         )
 
-    returned_id = result.get(
-        "PhysicalResourceId", physical_id
-    )
+    returned_id = result.get("PhysicalResourceId", physical_id)
     data = result.get("Data", {})
 
     logger.info(
