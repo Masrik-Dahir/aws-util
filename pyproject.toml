@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aws-util"
-version = "1.0.0"
+version = "1.0.1"
 description = "A utility library for common AWS services"
 readme = "README.md"
 authors = [{ name = "Masrik Dahir", email = "info@masrikdahir.com" }]
@@ -63,7 +63,7 @@ publish         = "task bump minor && task build && python -m twine upload dist/
 publish-test    = "task build && python -m twine upload --repository testpypi dist/*"
 test            = "pytest tests/ -v"
 test-cov        = "pytest tests/ -v --cov=src/aws_util --cov-report=term-missing"
-mutation-test   = "pytest tests/test_security_compliance.py --gremlins"
+mutation-test   = "pytest tests/ --gremlins"
 lint            = "ruff check --fix --unsafe-fixes src/ && ruff format src/"
 typecheck       = "mypy src/aws_util/"
 coverage        = "pytest --cov=src/ --cov-report=term-missing --cov-fail-under=100"
