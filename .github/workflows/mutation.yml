@@ -1,4 +1,4 @@
-name: Test
+name: Mutation Test
 
 on: [push, pull_request]
 
