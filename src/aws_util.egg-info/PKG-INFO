@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: aws-util
-Version: 0.7.0
+Version: 1.0.0
 Summary: A utility library for common AWS services
 Author-email: Masrik Dahir <info@masrikdahir.com>
 Project-URL: Homepage, https://www.masrikdahir.com
@@ -40,7 +40,7 @@ Requires-Dist: moto[acm,athena,cloudformation,cloudwatch,cognito-idp,dynamodb,ec
 [![Lint](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/lint.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/lint.yml)
 [![Test](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/test.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/test.yml)
 
-A comprehensive Python utility library for **32+ AWS services** with **39 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
+A comprehensive Python utility library for **32+ AWS services** with **52 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
 
 ## Installation
 
@@ -101,6 +101,16 @@ pip install aws-util
 | 37 | `resource_ops` | SQS + DynamoDB + S3 + SSM + Lambda + ECR + SNS + Athena + STS *(multi-service)* | **`reprocess_sqs_dlq`**, **`backup_dynamodb_to_s3`**, **`sync_ssm_params_to_lambda_env`**, **`delete_stale_ecr_images`**, **`rebuild_athena_partitions`**, **`s3_inventory_to_dynamodb`**, **`cross_account_s3_copy`**, **`rotate_secret_and_notify`**, **`lambda_invoke_with_secret`**, **`publish_s3_keys_to_sqs`** |
 | 38 | `security_ops` | S3 + IAM + KMS + Secrets Manager + SNS + Cognito + SES + SSM + CloudWatch + EC2 + CloudFormation *(multi-service)* | **`audit_public_s3_buckets`**, **`rotate_iam_access_key`**, **`kms_encrypt_to_secret`**, **`iam_roles_report_to_s3`**, **`enforce_bucket_versioning`**, **`cognito_bulk_create_users`**, **`sync_secret_to_ssm`**, **`create_cloudwatch_alarm_with_sns`**, **`tag_ec2_instances_from_ssm`**, **`validate_and_store_cfn_template`** |
 | 39 | `lambda_middleware` | Lambda + DynamoDB + SQS + CloudWatch + SSM *(multi-service)* | **`idempotent_handler`**, **`batch_processor`**, **`middleware_chain`**, **`lambda_timeout_guard`**, **`cold_start_tracker`**, **`lambda_response`**, **`cors_preflight`**, **`parse_event`**, **`evaluate_feature_flag`**, **`evaluate_feature_flags`** |
+| 40 | `api_gateway` | API Gateway + Lambda + DynamoDB + Cognito *(multi-service)* | **`jwt_authorizer`**, **`api_key_authorizer`**, **`request_validator`**, **`throttle_guard`**, **`websocket_connect`**, **`websocket_disconnect`**, **`websocket_list_connections`**, **`websocket_broadcast`** |
+| 41 | `event_orchestration` | EventBridge + Step Functions + Lambda + SQS + DynamoDB + Scheduler + Pipes *(multi-service)* | **`create_eventbridge_rule`**, **`put_eventbridge_targets`**, **`delete_eventbridge_rule`**, **`create_schedule`**, **`delete_schedule`**, **`run_workflow`**, **`saga_orchestrator`**, **`fan_out_fan_in`**, **`start_event_replay`**, **`describe_event_replay`**, **`create_pipe`**, **`delete_pipe`**, **`create_sqs_event_source_mapping`**, **`delete_event_source_mapping`** |
+| 42 | `data_flow_etl` | S3 + DynamoDB + Kinesis + Firehose + OpenSearch + Glue + Athena + CloudWatch + SNS *(multi-service)* | **`s3_event_to_dynamodb`**, **`dynamodb_stream_to_opensearch`**, **`dynamodb_stream_to_s3_archive`**, **`s3_csv_to_dynamodb_bulk`**, **`kinesis_to_firehose_transformer`**, **`cross_region_s3_replicator`**, **`etl_status_tracker`**, **`s3_multipart_upload_manager`**, **`data_lake_partition_manager`**, **`repair_partitions`** |
+| 43 | `resilience` | Lambda + DynamoDB + SQS + SNS + S3 *(multi-service)* | **`circuit_breaker`**, **`retry_with_backoff`**, **`dlq_monitor_and_alert`**, **`poison_pill_handler`**, **`lambda_destination_router`**, **`graceful_degradation`**, **`timeout_sentinel`** |
+| 44 | `observability` | CloudWatch + X-Ray + Synthetics + CloudWatch Logs *(multi-service)* | **`StructuredLogger`**, **`create_xray_trace`**, **`emit_emf_metric`**, **`create_lambda_alarms`**, **`create_dlq_depth_alarm`**, **`run_log_insights_query`**, **`generate_lambda_dashboard`**, **`aggregate_errors`**, **`create_canary`**, **`build_service_map`** |
+| 45 | `deployment` | Lambda + CloudFormation + EventBridge + CloudWatch + S3 *(multi-service)* | **`lambda_canary_deploy`**, **`lambda_layer_publisher`**, **`stack_deployer`**, **`environment_promoter`**, **`lambda_warmer`**, **`config_drift_detector`**, **`rollback_manager`**, **`lambda_package_builder`** |
+| 46 | `security_compliance` | IAM + Lambda + Secrets Manager + SSM + SNS + EC2 + DynamoDB + SQS + S3 + KMS + WAF + Cognito *(multi-service)* | **`least_privilege_analyzer`**, **`secret_rotation_orchestrator`**, **`data_masking_processor`**, **`vpc_security_group_auditor`**, **`encryption_enforcer`**, **`api_gateway_waf_manager`**, **`compliance_snapshot`**, **`resource_policy_validator`**, **`cognito_auth_flow_manager`** |
+| 47 | `cost_optimization` | Lambda + CloudWatch + SQS + CloudWatch Logs + DynamoDB + Resource Groups Tagging *(multi-service)* | **`lambda_right_sizer`**, **`unused_resource_finder`**, **`concurrency_optimizer`**, **`cost_attribution_tagger`**, **`dynamodb_capacity_advisor`**, **`log_retention_enforcer`** |
+| 48 | `testing_dev` | Lambda + CloudFormation + DynamoDB + SQS + S3 + SNS *(multi-service)* | **`lambda_event_generator`**, **`local_dynamodb_seeder`**, **`integration_test_harness`**, **`mock_event_source`**, **`lambda_invoke_recorder`**, **`snapshot_tester`** |
+| 49 | `config_state` | SSM + Secrets Manager + DynamoDB + STS + Lambda + AppConfig *(multi-service)* | **`config_resolver`**, **`distributed_lock`**, **`state_machine_checkpoint`**, **`cross_account_role_assumer`**, **`environment_variable_sync`**, **`appconfig_feature_loader`** |
 
 ---
 
@@ -1191,6 +1201,275 @@ from aws_util.lambda_middleware import (
 
 ---
 
+## API Gateway & Authentication *(API Gateway + Lambda + DynamoDB + Cognito)*
+
+```python
+from aws_util.api_gateway import (
+    jwt_authorizer,
+    api_key_authorizer,
+    request_validator,
+    throttle_guard,
+    websocket_connect,
+    websocket_disconnect,
+    websocket_list_connections,
+    websocket_broadcast,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `jwt_authorizer` | API GW + Lambda + Cognito | Validate JWT tokens (Cognito/OIDC), check issuer, claims, expiry, return IAM policy |
+| `api_key_authorizer` | API GW + Lambda + DynamoDB | Validate API keys stored in DynamoDB with owner and enabled checks |
+| `request_validator` | API GW + Lambda | Validate request body against a Pydantic model, return structured errors |
+| `throttle_guard` | API GW + Lambda + DynamoDB | Per-key rate limiter using DynamoDB atomic counters with TTL-based expiry |
+| `websocket_connect` | API GW WebSocket + DynamoDB | Store a new WebSocket connection ID with optional metadata |
+| `websocket_disconnect` | API GW WebSocket + DynamoDB | Remove a WebSocket connection from DynamoDB |
+| `websocket_list_connections` | API GW WebSocket + DynamoDB | List all active WebSocket connections |
+| `websocket_broadcast` | API GW WebSocket + DynamoDB | Broadcast a message to all connected clients, auto-remove stale connections |
+
+---
+
+## Event-Driven Orchestration *(EventBridge + Step Functions + Lambda + SQS + DynamoDB + Scheduler + Pipes)*
+
+```python
+from aws_util.event_orchestration import (
+    create_eventbridge_rule,
+    put_eventbridge_targets,
+    delete_eventbridge_rule,
+    create_schedule,
+    delete_schedule,
+    run_workflow,
+    saga_orchestrator,
+    fan_out_fan_in,
+    start_event_replay,
+    describe_event_replay,
+    create_pipe,
+    delete_pipe,
+    create_sqs_event_source_mapping,
+    delete_event_source_mapping,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `create_eventbridge_rule` | EventBridge | Create or update a rule with schedule expression or event pattern |
+| `put_eventbridge_targets` | EventBridge | Add targets to an EventBridge rule |
+| `delete_eventbridge_rule` | EventBridge | Delete a rule, optionally force-removing targets first |
+| `create_schedule` | EventBridge Scheduler | Create a one-time or recurring schedule with flexible time window |
+| `delete_schedule` | EventBridge Scheduler | Delete an EventBridge Scheduler schedule |
+| `run_workflow` | Step Functions | Start a Step Functions execution and poll until completion |
+| `saga_orchestrator` | Lambda | Execute a saga: sequence of Lambda steps with compensating rollbacks |
+| `fan_out_fan_in` | SQS + DynamoDB | Dispatch work items to SQS in batches, optionally track in DynamoDB |
+| `start_event_replay` | EventBridge | Replay archived events within a time window |
+| `describe_event_replay` | EventBridge | Describe the current state of an event replay |
+| `create_pipe` | EventBridge Pipes | Create a pipe: source → optional filter → optional enrichment → target |
+| `delete_pipe` | EventBridge Pipes | Delete an EventBridge Pipe |
+| `create_sqs_event_source_mapping` | Lambda + SQS | Create an SQS event-source mapping on a Lambda function |
+| `delete_event_source_mapping` | Lambda | Delete a Lambda event-source mapping |
+
+---
+
+## Data Flow & ETL Pipelines *(S3 + DynamoDB + Kinesis + Firehose + OpenSearch + Glue + Athena + CloudWatch + SNS)*
+
+```python
+from aws_util.data_flow_etl import (
+    s3_event_to_dynamodb,
+    dynamodb_stream_to_opensearch,
+    dynamodb_stream_to_s3_archive,
+    s3_csv_to_dynamodb_bulk,
+    kinesis_to_firehose_transformer,
+    cross_region_s3_replicator,
+    etl_status_tracker,
+    s3_multipart_upload_manager,
+    data_lake_partition_manager,
+    repair_partitions,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `s3_event_to_dynamodb` | S3 + DynamoDB | Process S3 JSON/JSON-lines objects, optional transform, batch-write to DynamoDB |
+| `dynamodb_stream_to_opensearch` | DDB Streams + OpenSearch | Index INSERT/MODIFY images into OpenSearch, remove on DELETE |
+| `dynamodb_stream_to_s3_archive` | DDB Streams + S3 | Archive stream records to S3 in JSON-lines format, date-partitioned |
+| `s3_csv_to_dynamodb_bulk` | S3 + DynamoDB | Read CSV from S3, optional column mapping, chunked batch-write to DynamoDB |
+| `kinesis_to_firehose_transformer` | Kinesis + Firehose | Read Kinesis records, apply transformation, write to Firehose delivery stream |
+| `cross_region_s3_replicator` | S3 + SNS | Replicate S3 objects across regions with metadata preservation + SNS notification |
+| `etl_status_tracker` | DynamoDB + CloudWatch | Track multi-step ETL pipeline status in DynamoDB with optional CloudWatch metrics |
+| `s3_multipart_upload_manager` | S3 | Multipart uploads with progress tracking and auto-abort on failure |
+| `data_lake_partition_manager` | Glue + S3 | Add Glue partitions when new data lands, skip existing partitions |
+| `repair_partitions` | Athena + Glue | Run MSCK REPAIR TABLE via Athena to auto-discover new partitions |
+
+---
+
+## Resilience & Error Handling *(Lambda + DynamoDB + SQS + SNS + S3)*
+
+```python
+from aws_util.resilience import (
+    circuit_breaker,
+    retry_with_backoff,
+    dlq_monitor_and_alert,
+    poison_pill_handler,
+    lambda_destination_router,
+    graceful_degradation,
+    timeout_sentinel,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `circuit_breaker` | Lambda + DynamoDB | Circuit breaker pattern (closed/open/half-open) with DynamoDB state tracking — prevents cascading failures |
+| `retry_with_backoff` | Lambda (any service) | Decorator for exponential backoff with jitter, configurable retries and exception types |
+| `dlq_monitor_and_alert` | SQS + SNS | Poll SQS DLQ depth, fire SNS alerts when messages accumulate above threshold |
+| `poison_pill_handler` | SQS + S3 + DynamoDB | Detect repeatedly-failing messages via `ApproximateReceiveCount`, quarantine to S3 and/or DynamoDB |
+| `lambda_destination_router` | Lambda + SQS/SNS/EventBridge | Configure Lambda async invocation destinations (on-success / on-failure) |
+| `graceful_degradation` | Lambda + DynamoDB | Execute a callable with DynamoDB-cached fallback on downstream failure |
+| `timeout_sentinel` | Lambda | Wrap external calls with a strict timeout shorter than the Lambda limit |
+
+---
+
+## Observability & Monitoring *(CloudWatch + X-Ray + Synthetics + CloudWatch Logs)*
+
+```python
+from aws_util.observability import (
+    StructuredLogger, create_xray_trace, emit_emf_metric,
+    emit_emf_metrics_batch, create_lambda_alarms, create_dlq_depth_alarm,
+    run_log_insights_query, generate_lambda_dashboard,
+    aggregate_errors, create_canary, delete_canary,
+    build_service_map, get_trace_summaries,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `StructuredLogger` | CloudWatch Logs | JSON structured logger with correlation IDs, Lambda context injection, child loggers |
+| `create_xray_trace` | X-Ray | Create custom X-Ray trace segments with subsegments and annotations |
+| `batch_put_trace_segments` | X-Ray | Batch-submit multiple X-Ray trace segment documents |
+| `emit_emf_metric` | CloudWatch | Emit a single CloudWatch metric via Embedded Metric Format (EMF) |
+| `emit_emf_metrics_batch` | CloudWatch | Emit multiple metrics in a single EMF document |
+| `create_lambda_alarms` | CloudWatch + SNS | Create error-rate and duration alarms for a Lambda function wired to SNS |
+| `create_dlq_depth_alarm` | CloudWatch + SQS + SNS | Create a CloudWatch alarm on SQS DLQ depth |
+| `run_log_insights_query` | CloudWatch Logs | Execute a CloudWatch Logs Insights query and return results |
+| `generate_lambda_dashboard` | CloudWatch | Generate a CloudWatch dashboard JSON for Lambda functions |
+| `aggregate_errors` | CloudWatch Logs + SNS | Scan log groups for errors, deduplicate, send digest via SNS |
+| `create_canary` | Synthetics + S3 | Create a CloudWatch Synthetics canary for health-check monitoring |
+| `delete_canary` | Synthetics | Stop and delete a CloudWatch Synthetics canary |
+| `build_service_map` | X-Ray | Query X-Ray for a service dependency map |
+| `get_trace_summaries` | X-Ray | Query X-Ray trace summaries with optional filter expression |
+
+---
+
+## Deployment & Release Management *(Lambda + CloudFormation + EventBridge + CloudWatch + S3)*
+
+```python
+from aws_util.deployment import (
+    lambda_canary_deploy, lambda_layer_publisher,
+    stack_deployer, environment_promoter, lambda_warmer,
+    config_drift_detector, rollback_manager, lambda_package_builder,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `lambda_canary_deploy` | Lambda + CloudWatch | Publish new version, shift alias traffic with canary steps, auto-rollback on alarm |
+| `lambda_layer_publisher` | Lambda + S3 | Package a directory into a Lambda Layer ZIP, publish, update functions |
+| `stack_deployer` | CloudFormation + S3 | Deploy CFN/SAM stacks via change sets with auto-rollback and output capture |
+| `environment_promoter` | Lambda + STS | Copy Lambda config, env vars, and aliases across accounts/stages |
+| `lambda_warmer` | Lambda + EventBridge | Schedule periodic no-op invocations to keep Lambdas warm |
+| `config_drift_detector` | Lambda + API Gateway + SSM + S3 | Compare deployed configs against desired state, report drift |
+| `rollback_manager` | Lambda + CloudWatch | Detect error-rate spikes, auto-shift alias traffic to previous version |
+| `lambda_package_builder` | Lambda + S3 | Bundle Python code + pip dependencies into a deployment ZIP, upload to S3 |
+
+---
+
+## Security & Compliance *(IAM + Lambda + Secrets Manager + SSM + SNS + EC2 + DynamoDB + SQS + S3 + KMS + WAF + Cognito)*
+
+```python
+from aws_util.security_compliance import (
+    least_privilege_analyzer, secret_rotation_orchestrator,
+    data_masking_processor, vpc_security_group_auditor,
+    encryption_enforcer, api_gateway_waf_manager,
+    compliance_snapshot, resource_policy_validator,
+    cognito_auth_flow_manager,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `least_privilege_analyzer` | IAM + Lambda | Analyze Lambda execution roles for overly permissive policies |
+| `secret_rotation_orchestrator` | Secrets Manager + Lambda + SSM + SNS | Rotate secrets, propagate new values to Lambda env vars and SSM, notify via SNS |
+| `data_masking_processor` | Comprehend + CloudWatch Logs | Detect and mask PII in text or CloudWatch log events |
+| `vpc_security_group_auditor` | EC2 | Audit security groups for overly permissive ingress rules (0.0.0.0/0) |
+| `encryption_enforcer` | DynamoDB + SQS + SNS + S3 + KMS | Check encryption status across services, optionally remediate with KMS |
+| `api_gateway_waf_manager` | WAF + API Gateway | Associate/disassociate WAF Web ACLs with API Gateway stages |
+| `compliance_snapshot` | Lambda + IAM + DynamoDB + SQS + S3 + SNS | Generate a point-in-time compliance report across multiple services |
+| `resource_policy_validator` | S3 + SQS + SNS + Lambda + KMS | Validate resource policies for public access, wildcard principals, missing conditions |
+| `cognito_auth_flow_manager` | Cognito | Manage sign-up, sign-in, refresh, forgot-password, and MFA flows |
+
+---
+
+## Cost Optimization *(Lambda + CloudWatch + SQS + CloudWatch Logs + DynamoDB + Resource Groups Tagging)*
+
+```python
+from aws_util.cost_optimization import (
+    lambda_right_sizer, unused_resource_finder,
+    concurrency_optimizer, cost_attribution_tagger,
+    dynamodb_capacity_advisor, log_retention_enforcer,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `lambda_right_sizer` | Lambda + CloudWatch | Invoke Lambda at multiple memory configs, measure duration/cost, recommend optimal setting |
+| `unused_resource_finder` | Lambda + SQS + CloudWatch Logs | Find idle Lambda functions, empty SQS queues, orphaned log groups |
+| `concurrency_optimizer` | Lambda + CloudWatch | Analyze Lambda concurrency metrics, recommend reserved/provisioned settings |
+| `cost_attribution_tagger` | Resource Groups Tagging | Ensure cost-allocation tags on serverless resources, apply missing tags |
+| `dynamodb_capacity_advisor` | DynamoDB + CloudWatch | Analyze consumed vs provisioned DynamoDB capacity, recommend on-demand or adjustments |
+| `log_retention_enforcer` | CloudWatch Logs | Set/enforce CloudWatch Logs retention policies across Lambda log groups |
+
+---
+
+## Testing & Development *(Lambda + CloudFormation + DynamoDB + SQS + S3 + SNS)*
+
+```python
+from aws_util.testing_dev import (
+    lambda_event_generator, local_dynamodb_seeder,
+    integration_test_harness, mock_event_source,
+    lambda_invoke_recorder, snapshot_tester,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `lambda_event_generator` | Lambda (all sources) | Generate realistic sample events for all Lambda trigger types (API GW, SQS, SNS, S3, DynamoDB Stream, EventBridge, Kinesis, Cognito) |
+| `local_dynamodb_seeder` | DynamoDB | Seed DynamoDB with test data from JSON or CSV content |
+| `integration_test_harness` | CloudFormation + Lambda + DynamoDB + SQS | Deploy temp CloudFormation stack, run tests, capture results, teardown |
+| `mock_event_source` | SQS + S3 + Lambda | Create temp SQS queue and S3 bucket with event source mapping wired to Lambda |
+| `lambda_invoke_recorder` | Lambda + S3 + DynamoDB | Record Lambda invocation request/response pairs to S3 and/or DynamoDB for replay testing |
+| `snapshot_tester` | Lambda + S3 + SNS | Compare Lambda output against S3 baseline snapshots, alert on changes via SNS |
+
+---
+
+## Configuration & State Management *(SSM + Secrets Manager + DynamoDB + STS + Lambda + AppConfig)*
+
+```python
+from aws_util.config_state import (
+    config_resolver, distributed_lock,
+    state_machine_checkpoint, cross_account_role_assumer,
+    environment_variable_sync, appconfig_feature_loader,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `config_resolver` | SSM + Secrets Manager | Hierarchical config from SSM Parameter Store by environment/service path, with secret injection |
+| `distributed_lock` | DynamoDB | DynamoDB conditional writes with TTL for coordinating singleton Lambda executions |
+| `state_machine_checkpoint` | DynamoDB | Save/restore Lambda execution state to DynamoDB for long-running multi-invocation processes |
+| `cross_account_role_assumer` | STS | Chain STS assume_role calls for cross-account ops, cache + auto-refresh credentials |
+| `environment_variable_sync` | SSM + Lambda | Sync Lambda env vars from SSM Parameter Store with change detection |
+| `appconfig_feature_loader` | AppConfig | Fetch and cache AWS AppConfig feature flags with automatic refresh |
+
+---
+
 ## Error handling
 
 | Condition | Exception |
@@ -1250,6 +1529,16 @@ Minimum permissions required per service:
 | resource_ops | `sqs:ReceiveMessage` `sqs:SendMessage` `sqs:DeleteMessage` `dynamodb:Scan` `s3:PutObject` `s3:ListObjectsV2` `s3:GetObject` `ssm:GetParametersByPath` `lambda:UpdateFunctionConfiguration` `lambda:Invoke` `ecr:DescribeImages` `ecr:BatchDeleteImage` `sns:Publish` `athena:StartQueryExecution` `athena:GetQueryExecution` `sts:AssumeRole` `secretsmanager:GetSecretValue` `secretsmanager:PutSecretValue` `dynamodb:BatchWriteItem` |
 | security_ops | `s3:ListBuckets` `s3:GetBucketAcl` `s3:PutBucketVersioning` `s3:GetBucketVersioning` `s3:GetObject` `s3:PutObject` `iam:CreateAccessKey` `iam:DeleteAccessKey` `iam:ListAccessKeys` `iam:ListRoles` `kms:Encrypt` `secretsmanager:CreateSecret` `secretsmanager:GetSecretValue` `secretsmanager:PutSecretValue` `sns:Publish` `sns:CreateTopic` `sns:Subscribe` `cognito-idp:AdminCreateUser` `ses:SendEmail` `ssm:PutParameter` `cloudwatch:PutMetricAlarm` `ec2:CreateTags` `ec2:DescribeInstances` `cloudformation:ValidateTemplate` |
 | lambda_middleware | `dynamodb:GetItem` `dynamodb:PutItem` `sqs:SendMessage` `cloudwatch:PutMetricData` `ssm:GetParameter` |
+| api_gateway | `dynamodb:GetItem` `dynamodb:PutItem` `dynamodb:DeleteItem` `dynamodb:Scan` `dynamodb:UpdateItem` `execute-api:ManageConnections` |
+| event_orchestration | `events:PutRule` `events:PutTargets` `events:DeleteRule` `events:RemoveTargets` `events:ListTargetsByRule` `events:StartReplay` `events:DescribeReplay` `scheduler:CreateSchedule` `scheduler:DeleteSchedule` `states:StartExecution` `states:DescribeExecution` `lambda:InvokeFunction` `lambda:CreateEventSourceMapping` `lambda:DeleteEventSourceMapping` `sqs:SendMessageBatch` `dynamodb:PutItem` `pipes:CreatePipe` `pipes:DeletePipe` |
+| data_flow_etl | `s3:GetObject` `s3:PutObject` `s3:CreateMultipartUpload` `s3:UploadPart` `s3:CompleteMultipartUpload` `s3:AbortMultipartUpload` `dynamodb:BatchWriteItem` `dynamodb:PutItem` `kinesis:DescribeStream` `kinesis:GetShardIterator` `kinesis:GetRecords` `firehose:PutRecordBatch` `sns:Publish` `cloudwatch:PutMetricData` `glue:GetTable` `glue:CreatePartition` `athena:StartQueryExecution` |
+| resilience | `dynamodb:GetItem` `dynamodb:PutItem` `sqs:GetQueueAttributes` `sns:Publish` `s3:PutObject` `lambda:PutFunctionEventInvokeConfig` |
+| observability | `xray:PutTraceSegments` `xray:GetTraceSummaries` `xray:GetServiceGraph` `logs:StartQuery` `logs:GetQueryResults` `logs:DescribeLogGroups` `logs:DescribeLogStreams` `logs:FilterLogEvents` `cloudwatch:PutMetricAlarm` `cloudwatch:PutDashboard` `synthetics:CreateCanary` `synthetics:StartCanary` `synthetics:StopCanary` `synthetics:DeleteCanary` `sns:Publish` |
+| deployment | `lambda:GetFunction` `lambda:PublishVersion` `lambda:CreateAlias` `lambda:UpdateAlias` `lambda:GetAlias` `lambda:AddPermission` `lambda:PublishLayerVersion` `lambda:UpdateFunctionConfiguration` `lambda:GetFunctionConfiguration` `cloudformation:CreateChangeSet` `cloudformation:DescribeChangeSet` `cloudformation:ExecuteChangeSet` `cloudformation:DeleteChangeSet` `cloudformation:DescribeStacks` `cloudformation:GetTemplate` `events:PutRule` `events:PutTargets` `events:RemoveTargets` `events:DeleteRule` `cloudwatch:GetMetricStatistics` `s3:PutObject` `s3:GetObject` `ssm:GetParameter` `sts:AssumeRole` |
+| security_compliance | `iam:GetRole` `iam:ListAttachedRolePolicies` `iam:GetPolicy` `iam:GetPolicyVersion` `lambda:ListFunctions` `lambda:GetFunction` `lambda:UpdateFunctionConfiguration` `secretsmanager:GetSecretValue` `secretsmanager:PutSecretValue` `secretsmanager:UpdateSecret` `ssm:PutParameter` `sns:Publish` `comprehend:DetectPiiEntities` `logs:DescribeLogGroups` `logs:FilterLogEvents` `ec2:DescribeSecurityGroups` `ec2:RevokeSecurityGroupIngress` `dynamodb:DescribeTable` `dynamodb:UpdateTable` `sqs:GetQueueAttributes` `sqs:SetQueueAttributes` `sns:GetTopicAttributes` `sns:SetTopicAttributes` `s3:GetBucketEncryption` `s3:PutBucketEncryption` `s3:GetBucketPolicy` `s3:GetBucketPublicAccessBlock` `kms:DescribeKey` `kms:GetKeyPolicy` `lambda:GetPolicy` `wafv2:AssociateWebACL` `wafv2:DisassociateWebACL` `cognito-idp:SignUp` `cognito-idp:InitiateAuth` `cognito-idp:ForgotPassword` `cognito-idp:ConfirmForgotPassword` `cognito-idp:RespondToAuthChallenge` |
+| cost_optimization | `lambda:GetFunctionConfiguration` `lambda:UpdateFunctionConfiguration` `lambda:InvokeFunction` `lambda:ListFunctions` `cloudwatch:GetMetricStatistics` `sqs:ListQueues` `sqs:GetQueueAttributes` `logs:DescribeLogGroups` `logs:PutRetentionPolicy` `dynamodb:DescribeTable` `tag:GetResources` `tag:TagResources` |
+| testing_dev | `lambda:InvokeFunction` `lambda:CreateEventSourceMapping` `cloudformation:CreateStack` `cloudformation:DescribeStacks` `cloudformation:DeleteStack` `dynamodb:BatchWriteItem` `sqs:CreateQueue` `sqs:GetQueueAttributes` `sqs:ReceiveMessage` `s3:CreateBucket` `s3:PutObject` `s3:GetObject` `s3:PutBucketNotificationConfiguration` `sns:Publish` |
+| config_state | `ssm:GetParametersByPath` `secretsmanager:GetSecretValue` `dynamodb:PutItem` `dynamodb:GetItem` `dynamodb:DeleteItem` `sts:AssumeRole` `lambda:GetFunctionConfiguration` `lambda:UpdateFunctionConfiguration` `appconfig:GetLatestConfiguration` `appconfig:StartConfigurationSession` |
 
 ---
 
