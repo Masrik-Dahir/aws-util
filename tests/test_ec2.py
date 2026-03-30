@@ -445,6 +445,32 @@ def test_wait_for_instance_state_instance_not_found(monkeypatch):
         )
 
 
+def test_wait_for_instance_state_polls_then_times_out(monkeypatch):
+    """Covers the sleep branch (line 383) by letting the loop iterate before timeout."""
+    import aws_util.ec2 as ec2mod
+
+    fake = EC2Instance(
+        instance_id="i-abc",
+        instance_type="t2.micro",
+        state="pending",
+        launch_time="2024-01-01T00:00:00Z",
+        private_ip=None,
+        public_ip=None,
+        vpc_id=None,
+        subnet_id=None,
+        tags={},
+    )
+    monkeypatch.setattr(ec2mod, "get_instance", lambda *a, **kw: fake)
+    with pytest.raises(TimeoutError, match="did not reach state"):
+        wait_for_instance_state(
+            "i-abc",
+            "running",
+            timeout=0.15,
+            poll_interval=0.01,
+            region_name=REGION,
+        )
+
+
 def test_get_console_output_empty(monkeypatch):
     """Covers empty console output return '' branch (line 465)."""
     from unittest.mock import MagicMock

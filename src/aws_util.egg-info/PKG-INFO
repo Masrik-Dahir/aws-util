@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: aws-util
-Version: 1.0.0
+Version: 1.1.0
 Summary: A utility library for common AWS services
 Author-email: Masrik Dahir <info@masrikdahir.com>
 Project-URL: Homepage, https://www.masrikdahir.com
@@ -39,6 +39,8 @@ Requires-Dist: moto[acm,athena,cloudformation,cloudwatch,cognito-idp,dynamodb,ec
 [![Coverage](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/coverage.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/coverage.yml)
 [![Lint](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/lint.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/lint.yml)
 [![Test](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/test.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/test.yml)
+[![Test](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/mutation.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/mutation.yml)
+
 
 A comprehensive Python utility library for **32+ AWS services** with **52 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aws-util"
-version = "1.0.1"
+version = "1.1.0"
 description = "A utility library for common AWS services"
 readme = "README.md"
 authors = [{ name = "Masrik Dahir", email = "info@masrikdahir.com" }]
@@ -37,6 +37,7 @@ dev = [
     "taskipy",
     "pytest",
     "pytest-cov",
+    "pytest-asyncio",
     "black",
     "ruff",
     "mypy",
@@ -73,6 +74,7 @@ release         = "task prepare && task publish"
 "release:minor" = "task release"
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 filterwarnings = [
     "ignore:Core Pydantic V1 functionality:UserWarning",
 ]
