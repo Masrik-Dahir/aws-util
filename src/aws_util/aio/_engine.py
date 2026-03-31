@@ -303,9 +303,7 @@ def _build_request(
     signer = SigV4Auth(credentials, service, region)
     signer.add_auth(aws_request)
 
-    signed_headers: dict[str, str] = {
-        str(k): str(v) for k, v in aws_request.headers.items()
-    }
+    signed_headers: dict[str, str] = {str(k): str(v) for k, v in aws_request.headers.items()}
     return str(method), str(aws_request.url), signed_headers, body
 
 
