@@ -12,15 +12,16 @@ from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.config_loader import AppConfig
+from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
     "AppConfig",
-    "load_config_from_ssm",
-    "load_config_from_secret",
-    "load_app_config",
-    "resolve_config",
     "get_db_credentials",
     "get_ssm_parameter_map",
+    "load_app_config",
+    "load_config_from_secret",
+    "load_config_from_ssm",
+    "resolve_config",
 ]
 
 
@@ -58,10 +59,8 @@ async def load_config_from_ssm(
         )
         for param in params:
             raw[param["Name"]] = param["Value"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to load SSM parameters under {path}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to load SSM parameters under {path}") from exc
 
     if not strip_prefix:
         return raw
@@ -89,10 +88,8 @@ async def load_config_from_secret(
     client = async_client("secretsmanager", region_name)
     try:
         resp = await client.call("GetSecretValue", SecretId=secret_name)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to load secret {secret_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to load secret {secret_name!r}") from exc
 
     raw = resp.get("SecretString", "{}")
     try:
@@ -138,7 +135,7 @@ async def load_app_config(
     results: dict[str, dict] = {}
     if tasks:
         gathered = await asyncio.gather(*tasks.values(), return_exceptions=False)
-        for key, result in zip(tasks.keys(), gathered):
+        for key, result in zip(tasks.keys(), gathered, strict=False):
             results[key] = result
 
     merged: dict[str, Any] = {}
@@ -250,9 +247,7 @@ async def get_ssm_parameter_map(
             resp = await client.call("GetParameters", Names=chunk, WithDecryption=True)
             for param in resp.get("Parameters", []):
                 result[param["Name"]] = param["Value"]
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to fetch SSM parameters batch: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to fetch SSM parameters batch") from exc
 
     return result

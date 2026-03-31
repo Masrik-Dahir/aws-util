@@ -20,13 +20,14 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
@@ -289,7 +290,7 @@ def disaster_recovery_orchestrator(
         except ClientError as exc:
             step["status"] = "failed"
             step["error"] = str(exc)
-            raise RuntimeError(f"Failed to promote RDS replica {rds_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to promote RDS replica {rds_id!r}") from exc
         finally:
             failover_steps.append(step)
 
@@ -305,7 +306,7 @@ def disaster_recovery_orchestrator(
                 TableName=table,
                 Item={
                     "pk": {"S": "__dr_verification__"},
-                    "sk": {"S": datetime.now(timezone.utc).isoformat()},
+                    "sk": {"S": datetime.now(UTC).isoformat()},
                     "type": {"S": "failover_test"},
                 },
             )
@@ -313,8 +314,8 @@ def disaster_recovery_orchestrator(
         except ClientError as exc:
             step["status"] = "failed"
             step["error"] = str(exc)
-            raise RuntimeError(
-                f"Failed to verify DynamoDB write to {table!r} in {secondary_region}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to verify DynamoDB write to {table!r} in {secondary_region}"
             ) from exc
         finally:
             failover_steps.append(step)
@@ -357,8 +358,8 @@ def disaster_recovery_orchestrator(
             except ClientError as exc:
                 step["status"] = "failed"
                 step["error"] = str(exc)
-                raise RuntimeError(
-                    f"Failed to update Route53 record {record_name!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to update Route53 record {record_name!r}"
                 ) from exc
             finally:
                 failover_steps.append(step)
@@ -372,7 +373,7 @@ def disaster_recovery_orchestrator(
                 "primary_region": primary_region,
                 "secondary_region": secondary_region,
                 "readiness_score": readiness_score,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "failover_steps": failover_steps,
             }
         )
@@ -391,8 +392,8 @@ def disaster_recovery_orchestrator(
         except ClientError as exc:
             step["status"] = "failed"
             step["error"] = str(exc)
-            raise RuntimeError(
-                f"Failed to send DR notification to {sns_topic_arn!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to send DR notification to {sns_topic_arn!r}"
             ) from exc
         finally:
             failover_steps.append(step)
@@ -467,7 +468,7 @@ def backup_compliance_manager(
 
     backup_client = get_client("backup", region_name)
     cutoff = time.time() - (required_backup_window_hours * 3600)
-    cutoff_dt = datetime.fromtimestamp(cutoff, tz=timezone.utc)
+    cutoff_dt = datetime.fromtimestamp(cutoff, tz=UTC)
 
     total_scanned = 0
     compliant_count = 0
@@ -483,15 +484,15 @@ def backup_compliance_manager(
         try:
             resp = ddb.list_tables()
         except ClientError as exc:
-            raise RuntimeError(f"Failed to list DynamoDB tables: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to list DynamoDB tables") from exc
         for table_name in resp.get("TableNames", []):
             try:
                 t_resp = ddb.describe_table(
                     TableName=table_name,
                 )
             except ClientError as exc:
-                raise RuntimeError(
-                    f"Failed to describe DynamoDB table {table_name!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to describe DynamoDB table {table_name!r}"
                 ) from exc
             arn = t_resp["Table"]["TableArn"]
             resource_arns.append((f"dynamodb:{table_name}", arn))
@@ -501,7 +502,7 @@ def backup_compliance_manager(
         try:
             resp = rds.describe_db_instances()
         except ClientError as exc:
-            raise RuntimeError(f"Failed to list RDS instances: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to list RDS instances") from exc
         for inst in resp.get("DBInstances", []):
             arn = inst["DBInstanceArn"]
             name = inst["DBInstanceIdentifier"]
@@ -512,7 +513,7 @@ def backup_compliance_manager(
         try:
             resp = ec2.describe_volumes()
         except ClientError as exc:
-            raise RuntimeError(f"Failed to list EBS volumes: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to list EBS volumes") from exc
         for vol in resp.get("Volumes", []):
             vol_id = vol["VolumeId"]
             # EBS ARN format
@@ -528,8 +529,8 @@ def backup_compliance_manager(
                 MaxResults=1,
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to list recovery points for {resource_label!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to list recovery points for {resource_label!r}"
             ) from exc
 
         points = resp.get("RecoveryPoints", [])
@@ -555,7 +556,7 @@ def backup_compliance_manager(
 
     # Generate compliance report
     report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "required_backup_window_hours": (required_backup_window_hours),
         "total_resources_scanned": total_scanned,
         "compliant_count": compliant_count,
@@ -572,9 +573,9 @@ def backup_compliance_manager(
         prefix = s3_report_prefix or "backup-compliance"
         report_key = (
             f"{prefix}/"
-            f"{datetime.now(timezone.utc).strftime('%Y/%m/%d')}/"
+            f"{datetime.now(UTC).strftime('%Y/%m/%d')}/"
             f"report-"
-            f"{datetime.now(timezone.utc).strftime('%H%M%S')}"
+            f"{datetime.now(UTC).strftime('%H%M%S')}"
             f".json"
         )
         try:
@@ -586,8 +587,9 @@ def backup_compliance_manager(
             )
             report_s3_location = f"s3://{s3_report_bucket}/{report_key}"
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to store compliance report in s3://{s3_report_bucket}/{report_key}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"Failed to store compliance report in s3://{s3_report_bucket}/{report_key}",
             ) from exc
 
     # Send SNS alert for non-compliant resources
@@ -598,7 +600,7 @@ def backup_compliance_manager(
                 "event": "backup_non_compliance",
                 "non_compliant_resources": non_compliant,
                 "required_backup_window_hours": (required_backup_window_hours),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
         try:
@@ -609,8 +611,8 @@ def backup_compliance_manager(
             )
             alerts_sent += 1
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to send compliance alert to {sns_topic_arn!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to send compliance alert to {sns_topic_arn!r}"
             ) from exc
 
     logger.info(
@@ -631,8 +633,8 @@ def backup_compliance_manager(
 
 
 __all__ = [
-    "DROrchestrationResult",
     "BackupComplianceResult",
-    "disaster_recovery_orchestrator",
+    "DROrchestrationResult",
     "backup_compliance_manager",
+    "disaster_recovery_orchestrator",
 ]

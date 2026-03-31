@@ -25,6 +25,7 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,8 @@ __all__ = [
     "EventBusFederationResult",
     "LogAggregationResult",
     "ResourceInventoryResult",
-    "cross_account_event_bus_federator",
     "centralized_log_aggregator",
+    "cross_account_event_bus_federator",
     "multi_account_resource_inventory",
 ]
 
@@ -108,7 +109,7 @@ def _assume_role(
         )
         return resp["Credentials"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to assume role {role_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to assume role {role_arn!r}") from exc
 
 
 def _remote_client(
@@ -205,11 +206,9 @@ def cross_account_event_bus_federator(
             Policy=json.dumps(policy),
         )
         policies_updated += 1
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to update resource policy on bus {central_bus_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to update resource policy on bus {central_bus_name!r}"
         ) from exc
 
     # ------------------------------------------------------------------
@@ -246,11 +245,9 @@ def cross_account_event_bus_federator(
                         f"{central_bus_name} in {central_account_id}"
                     ),
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to create rule {rule_name!r} in account {acct_id}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to create rule {rule_name!r} in account {acct_id}"
                 ) from exc
 
             # Build the target entry
@@ -269,11 +266,9 @@ def cross_account_event_bus_federator(
                     Targets=[target],
                 )
                 rules_created += 1
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to put targets for rule {rule_name!r} in account {acct_id}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to put targets for rule {rule_name!r} in account {acct_id}"
                 ) from exc
 
         # --------------------------------------------------------------
@@ -413,11 +408,9 @@ def centralized_log_aggregator(
             S3DestinationConfiguration=s3_dest_config,
         )
         firehose_arn = resp["DeliveryStreamARN"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to create Firehose delivery stream {firehose_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to create Firehose delivery stream {firehose_name!r}"
         ) from exc
 
     # ------------------------------------------------------------------
@@ -432,11 +425,9 @@ def centralized_log_aggregator(
             targetArn=firehose_arn,
             roleArn=firehose_role_arn,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to create Logs destination {destination_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to create Logs destination {destination_name!r}"
         ) from exc
 
     access_policy = {
@@ -456,11 +447,9 @@ def centralized_log_aggregator(
             destinationName=destination_name,
             accessPolicy=json.dumps(access_policy),
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to set access policy on Logs destination {destination_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to set access policy on Logs destination {destination_name!r}"
         ) from exc
 
     # ------------------------------------------------------------------
@@ -520,19 +509,17 @@ def centralized_log_aggregator(
                                 destinationArn=destination_arn,
                             )
                             filters_created += 1
-                        except RuntimeError:
-                            raise
                         except Exception as exc:
-                            raise RuntimeError(
+                            raise wrap_aws_error(
+                                exc,
                                 f"Failed to create subscription "
                                 f"filter on {lg_name!r} in "
-                                f"account {acct_id}: {exc}"
+                                f"account {acct_id}",
                             ) from exc
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to list log groups for pattern {pattern!r} in account {acct_id}: {exc}"
+                raise wrap_aws_error(
+                    exc,
+                    f"Failed to list log groups for pattern {pattern!r} in account {acct_id}",
                 ) from exc
 
     # ------------------------------------------------------------------
@@ -578,11 +565,9 @@ def centralized_log_aggregator(
             Bucket=s3_bucket,
             LifecycleConfiguration={"Rules": merged_rules},
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to configure S3 lifecycle rules on {s3_bucket!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to configure S3 lifecycle rules on {s3_bucket!r}"
         ) from exc
 
     logger.info(
@@ -683,10 +668,8 @@ def multi_account_resource_inventory(
                         "tags": {t["Key"]: t["Value"] for t in mapping.get("Tags", [])},
                     }
                     acct_resources.append(resource)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to get resources in account {acct_id}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get resources in account {acct_id}") from exc
 
         per_account_counts[acct_id] = len(acct_resources)
         all_resources.extend(acct_resources)
@@ -728,10 +711,8 @@ def multi_account_resource_inventory(
                     }
                 )
                 items_written += len(batch)
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"DynamoDB batch_write_item failed: {exc}") from exc
+                raise wrap_aws_error(exc, "DynamoDB batch_write_item failed") from exc
             batch = []
 
     # Flush remaining items
@@ -739,10 +720,8 @@ def multi_account_resource_inventory(
         try:
             dynamo.batch_write_item(RequestItems={dynamodb_table_name: batch})
             items_written += len(batch)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"DynamoDB batch_write_item failed: {exc}") from exc
+            raise wrap_aws_error(exc, "DynamoDB batch_write_item failed") from exc
 
     # ------------------------------------------------------------------
     # Export to S3 as JSON
@@ -755,11 +734,9 @@ def multi_account_resource_inventory(
             Body=json.dumps(all_resources, default=str).encode(),
             ContentType="application/json",
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to export inventory to s3://{s3_bucket}/{export_key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to export inventory to s3://{s3_bucket}/{export_key}"
         ) from exc
 
     s3_location = f"s3://{s3_bucket}/{export_key}"

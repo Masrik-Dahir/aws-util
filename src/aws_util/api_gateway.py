@@ -26,6 +26,23 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "APIKeyRecord",
+    "AuthPolicy",
+    "ThrottleResult",
+    "ValidationResult",
+    "WebSocketConnection",
+    "api_key_authorizer",
+    "jwt_authorizer",
+    "request_validator",
+    "throttle_guard",
+    "websocket_broadcast",
+    "websocket_connect",
+    "websocket_disconnect",
+    "websocket_list_connections",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -412,8 +429,8 @@ def websocket_connect(
     try:
         client.put_item(TableName=table_name, Item=item)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to store WebSocket connection {connection_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to store WebSocket connection {connection_id!r}"
         ) from exc
 
 
@@ -439,8 +456,8 @@ def websocket_disconnect(
             Key={"connection_id": {"S": connection_id}},
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to remove WebSocket connection {connection_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to remove WebSocket connection {connection_id!r}"
         ) from exc
 
 
@@ -482,8 +499,8 @@ def websocket_list_connections(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to list WebSocket connections from {table_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to list WebSocket connections from {table_name!r}"
         ) from exc
 
     return connections

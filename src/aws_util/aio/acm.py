@@ -7,6 +7,7 @@ from typing import Any
 
 from aws_util.acm import ACMCertificate
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 __all__ = [
     "ACMCertificate",
@@ -65,10 +66,8 @@ async def list_certificates(
             token = resp.get("NextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_certificates failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_certificates failed") from exc
     return certs
 
 
@@ -148,10 +147,8 @@ async def request_certificate(
         kwargs["SubjectAlternativeNames"] = subject_alternative_names
     try:
         resp = await client.call("RequestCertificate", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to request certificate for {domain_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to request certificate for {domain_name!r}") from exc
     return resp["CertificateArn"]
 
 
@@ -176,10 +173,8 @@ async def delete_certificate(
             "DeleteCertificate",
             CertificateArn=certificate_arn,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to delete certificate {certificate_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete certificate {certificate_arn!r}") from exc
 
 
 async def get_certificate_pem(
@@ -203,10 +198,8 @@ async def get_certificate_pem(
     client = async_client("acm", region_name)
     try:
         resp = await client.call("GetCertificate", CertificateArn=certificate_arn)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to get certificate PEM for {certificate_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get certificate PEM for {certificate_arn!r}") from exc
     return resp["Certificate"]
 
 
@@ -256,11 +249,11 @@ async def wait_for_certificate(
     while True:
         cert = await describe_certificate(certificate_arn, region_name=region_name)
         if cert is None:
-            raise RuntimeError(f"Certificate {certificate_arn!r} not found during wait")
+            raise AwsServiceError(f"Certificate {certificate_arn!r} not found during wait")
         if cert.status == "ISSUED":
             return cert
         if cert.status in _FAILED_STATUSES:
-            raise RuntimeError(
+            raise AwsServiceError(
                 f"Certificate {certificate_arn!r} reached terminal status {cert.status!r}"
             )
         if _time.monotonic() >= deadline:

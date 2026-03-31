@@ -180,19 +180,19 @@ from aws_util.placeholder import (
 from aws_util.secrets_manager import get_secret
 
 __all__ = [
-    # Placeholder
-    "retrieve",
-    "clear_ssm_cache",
-    "clear_secret_cache",
     "clear_all_caches",
+    "clear_secret_cache",
+    "clear_ssm_cache",
+    "get_db_credentials",
     # SSM
     "get_parameter",
     # Secrets Manager
     "get_secret",
     # Multi-service: config
     "load_app_config",
-    "get_db_credentials",
+    "notify_on_exception",
+    # Placeholder
+    "retrieve",
     # Multi-service: notifications
     "send_alert",
-    "notify_on_exception",
 ]

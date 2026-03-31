@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import UTC
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 # ---------------------------------------------------------------------------
 # Models
@@ -100,7 +102,7 @@ def _create_or_update_endpoint(
         )
     except ClientError as exc:
         if exc.response["Error"]["Code"] != "ValidationException":
-            raise RuntimeError(f"Failed to create endpoint config {config_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to create endpoint config {config_name!r}") from exc
         # Config already exists — proceed with update.
 
     # Create or update the endpoint itself.
@@ -112,7 +114,7 @@ def _create_or_update_endpoint(
         return resp["EndpointArn"]
     except ClientError as exc:
         if exc.response["Error"]["Code"] != "ValidationException":
-            raise RuntimeError(f"Failed to create endpoint {endpoint_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to create endpoint {endpoint_name!r}") from exc
 
     # Endpoint already exists — update it.
     try:
@@ -121,7 +123,7 @@ def _create_or_update_endpoint(
             EndpointConfigName=config_name,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to update endpoint {endpoint_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update endpoint {endpoint_name!r}") from exc
 
     desc = sm.describe_endpoint(EndpointName=endpoint_name)
     return desc["EndpointArn"]
@@ -145,7 +147,7 @@ def _wait_for_endpoint(
             return status
         if status == "Failed":
             reason = desc.get("FailureReason", "unknown")
-            raise RuntimeError(f"Endpoint {endpoint_name!r} failed: {reason}")
+            raise AwsServiceError(f"Endpoint {endpoint_name!r} failed: {reason}")
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 f"Endpoint {endpoint_name!r} did not reach "
@@ -197,7 +199,7 @@ def _configure_auto_scaling(
             )
             configured = True
         except ClientError as exc:
-            raise RuntimeError(f"Auto-scaling config failed for variant {vname!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Auto-scaling config failed for variant {vname!r}") from exc
 
     return configured
 
@@ -212,10 +214,10 @@ def _collect_variant_metrics(
 
     Returns ``{variant_name: {metric: value, …}}``.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     cw = get_client("cloudwatch", region_name)
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(minutes=period_minutes)
     period_seconds = max(60, period_minutes * 60)
 
@@ -410,8 +412,8 @@ def sagemaker_endpoint_manager(
     except TimeoutError:
         raise
     except Exception as exc:
-        raise RuntimeError(
-            f"sagemaker_endpoint_manager failed for {endpoint_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"sagemaker_endpoint_manager failed for {endpoint_name!r}"
         ) from exc
 
 
@@ -484,8 +486,8 @@ def _register_model_package(
     try:
         resp = sm.create_model_package(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to register model package in group {group_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to register model package in group {group_name!r}"
         ) from exc
 
     return resp
@@ -512,7 +514,7 @@ def _cross_account_copy(
             RoleSessionName="model-registry-promoter",
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to assume role {role_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to assume role {role_arn!r}") from exc
 
     creds = creds_resp["Credentials"]
 
@@ -536,7 +538,7 @@ def _cross_account_copy(
         obj = s3_src.get_object(Bucket=src_bucket, Key=src_key)
         body = obj["Body"].read()
     except ClientError as exc:
-        raise RuntimeError(f"Failed to download model artifact from {model_url!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to download model artifact from {model_url!r}") from exc
 
     # Upload to target.
     dest_key = f"{target_prefix.rstrip('/')}/{src_key.split('/')[-1]}"
@@ -547,8 +549,8 @@ def _cross_account_copy(
             Body=body,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to upload model artifact to s3://{target_bucket}/{dest_key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to upload model artifact to s3://{target_bucket}/{dest_key}"
         ) from exc
 
     return f"s3://{target_bucket}/{dest_key}"
@@ -565,7 +567,7 @@ def _record_promotion(
 
     Returns the generated record ID.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     ddb = get_client("dynamodb", region_name)
     record_id = str(uuid.uuid4())
@@ -573,7 +575,7 @@ def _record_promotion(
         "record_id": {"S": record_id},
         "model_package_arn": {"S": model_package_arn},
         "approval_status": {"S": approval_status},
-        "timestamp": {"S": datetime.now(timezone.utc).isoformat()},
+        "timestamp": {"S": datetime.now(UTC).isoformat()},
     }
     if cross_account_location:
         item["cross_account_location"] = {
@@ -583,8 +585,8 @@ def _record_promotion(
     try:
         ddb.put_item(TableName=table_name, Item=item)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to record promotion in DynamoDB table {table_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to record promotion in DynamoDB table {table_name!r}"
         ) from exc
 
     return record_id
@@ -716,18 +718,16 @@ def model_registry_promoter(
             promotion_record_id=record_id,
         )
 
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"model_registry_promoter failed for group {model_package_group_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"model_registry_promoter failed for group {model_package_group_name!r}"
         ) from exc
 
 
 __all__ = [
-    "VariantStatus",
     "EndpointManagerResult",
     "ModelPromotionResult",
-    "sagemaker_endpoint_manager",
+    "VariantStatus",
     "model_registry_promoter",
+    "sagemaker_endpoint_manager",
 ]

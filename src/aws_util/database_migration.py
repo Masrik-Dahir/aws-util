@@ -10,16 +10,18 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 __all__ = [
-    "TableMigrationResult",
     "RDSBlueGreenResult",
+    "TableMigrationResult",
     "dynamodb_table_migrator",
     "rds_blue_green_orchestrator",
 ]
@@ -77,7 +79,7 @@ def _enable_dynamodb_streams(
     try:
         desc = client.describe_table(TableName=table_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe table {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe table {table_name!r}") from exc
 
     stream_spec = desc["Table"].get("StreamSpecification", {})
     stream_arn = desc["Table"].get("LatestStreamArn")
@@ -94,7 +96,7 @@ def _enable_dynamodb_streams(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to enable streams on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to enable streams on {table_name!r}") from exc
 
     return resp["TableDescription"]["LatestStreamArn"]
 
@@ -111,14 +113,14 @@ def _wait_for_export(
         try:
             resp = client.describe_export(ExportArn=export_arn)
         except ClientError as exc:
-            raise RuntimeError(f"describe_export failed: {exc}") from exc
+            raise wrap_aws_error(exc, "describe_export failed") from exc
 
         status = resp["ExportDescription"]["ExportStatus"]
         if status == "COMPLETED":
             return resp["ExportDescription"]
         if status == "FAILED":
             reason = resp["ExportDescription"].get("FailureMessage", "unknown")
-            raise RuntimeError(f"DynamoDB export {export_arn} failed: {reason}")
+            raise AwsServiceError(f"DynamoDB export {export_arn} failed: {reason}")
         if time.monotonic() >= deadline:
             raise TimeoutError(f"DynamoDB export did not complete within {timeout}s")
         time.sleep(poll_interval)
@@ -141,7 +143,7 @@ def _create_destination_table(
         return  # table exists
     except ClientError as exc:
         if exc.response["Error"]["Code"] != ("ResourceNotFoundException"):
-            raise RuntimeError(f"Failed to check table {table_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to check table {table_name!r}") from exc
 
     kwargs: dict[str, Any] = {
         "TableName": table_name,
@@ -155,7 +157,7 @@ def _create_destination_table(
     try:
         client.create_table(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create table {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create table {table_name!r}") from exc
 
     # Wait for the table to become active.
     waiter = client.get_waiter("table_exists")
@@ -165,7 +167,7 @@ def _create_destination_table(
             WaiterConfig={"Delay": 5, "MaxAttempts": 60},
         )
     except ClientError as exc:
-        raise RuntimeError(f"Waiting for table {table_name!r} failed: {exc}") from exc
+        raise wrap_aws_error(exc, f"Waiting for table {table_name!r} failed") from exc
 
 
 def _read_export_items(
@@ -193,8 +195,8 @@ def _read_export_items(
                     item = record.get("Item", record)
                     items.append(item)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to read export from s3://{s3_bucket}/{export_prefix}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to read export from s3://{s3_bucket}/{export_prefix}"
         ) from exc
     return items
 
@@ -240,7 +242,7 @@ def _batch_write_items(
             for item in items:
                 batch.put_item(Item=item)
     except ClientError as exc:
-        raise RuntimeError(f"Batch write to {table_name!r} failed: {exc}") from exc
+        raise wrap_aws_error(exc, f"Batch write to {table_name!r} failed") from exc
     return len(items)
 
 
@@ -260,7 +262,7 @@ def _process_stream_records(
     try:
         desc = streams_client.describe_stream(StreamArn=stream_arn)
     except ClientError as exc:
-        raise RuntimeError(f"describe_stream failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_stream failed") from exc
 
     shards = desc["StreamDescription"].get("Shards", [])
 
@@ -281,14 +283,14 @@ def _process_stream_records(
                 ShardIteratorType="TRIM_HORIZON",
             )
         except ClientError as exc:
-            raise RuntimeError(f"get_shard_iterator failed for {shard_id}: {exc}") from exc
+            raise wrap_aws_error(exc, f"get_shard_iterator failed for {shard_id}") from exc
 
         shard_iter = iter_resp.get("ShardIterator")
         while shard_iter:
             try:
                 records_resp = streams_client.get_records(ShardIterator=shard_iter, Limit=1000)
             except ClientError as exc:
-                raise RuntimeError(f"get_records failed: {exc}") from exc
+                raise wrap_aws_error(exc, "get_records failed") from exc
 
             records = records_resp.get("Records", [])
             if not records:
@@ -307,7 +309,7 @@ def _process_stream_records(
                     try:
                         dest_table.put_item(Item=item)
                     except ClientError as exc:
-                        raise RuntimeError(f"Stream replay write failed: {exc}") from exc
+                        raise wrap_aws_error(exc, "Stream replay write failed") from exc
                     records_processed += 1
                 elif event_name == "REMOVE":
                     keys = record.get("dynamodb", {}).get("Keys", {})
@@ -315,7 +317,7 @@ def _process_stream_records(
                     try:
                         dest_table.delete_item(Key=key)
                     except ClientError as exc:
-                        raise RuntimeError(f"Stream replay delete failed: {exc}") from exc
+                        raise wrap_aws_error(exc, "Stream replay delete failed") from exc
                     records_processed += 1
 
             shard_iter = records_resp.get("NextShardIterator")
@@ -381,7 +383,7 @@ def dynamodb_table_migrator(
     if phase is not None:
         phase_lower = phase.lower()
         if phase_lower not in phases:
-            raise RuntimeError(f"Invalid phase {phase!r}; expected one of {phases}")
+            raise AwsServiceError(f"Invalid phase {phase!r}; expected one of {phases}")
         start_index = phases.index(phase_lower)
 
     records_exported = 0
@@ -397,17 +399,15 @@ def dynamodb_table_migrator(
     if start_index <= 0:
         try:
             stream_arn = _enable_dynamodb_streams(source_table_name, region_name)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"dynamodb_table_migrator export phase failed: {exc}") from exc
+            raise wrap_aws_error(exc, "dynamodb_table_migrator export phase failed") from exc
 
         ddb_client = get_client("dynamodb", region_name)
         try:
             table_desc = ddb_client.describe_table(TableName=source_table_name)
             table_arn = table_desc["Table"]["TableArn"]
         except ClientError as exc:
-            raise RuntimeError(f"Failed to get table ARN for {source_table_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get table ARN for {source_table_name!r}") from exc
 
         try:
             export_resp = ddb_client.export_table_to_point_in_time(
@@ -417,7 +417,7 @@ def dynamodb_table_migrator(
                 ExportFormat="DYNAMODB_JSON",
             )
         except ClientError as exc:
-            raise RuntimeError(f"ExportToS3 failed for {source_table_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"ExportToS3 failed for {source_table_name!r}") from exc
 
         export_arn = export_resp["ExportDescription"]["ExportArn"]
         export_desc = _wait_for_export(ddb_client, export_arn)
@@ -438,11 +438,9 @@ def dynamodb_table_migrator(
                 gsi_definitions,
                 region_name,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"dynamodb_table_migrator bulk_load phase failed creating table: {exc}"
+            raise wrap_aws_error(
+                exc, "dynamodb_table_migrator bulk_load phase failed creating table"
             ) from exc
 
         prefix = s3_export_prefix
@@ -451,11 +449,9 @@ def dynamodb_table_migrator(
 
         try:
             raw_items = _read_export_items(s3_export_bucket, prefix, region_name)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"dynamodb_table_migrator bulk_load phase failed reading export: {exc}"
+            raise wrap_aws_error(
+                exc, "dynamodb_table_migrator bulk_load phase failed reading export"
             ) from exc
 
         items = _deserialize_items(raw_items)
@@ -466,11 +462,9 @@ def dynamodb_table_migrator(
         if items:
             try:
                 records_loaded = _batch_write_items(destination_table_name, items, region_name)
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"dynamodb_table_migrator bulk_load phase failed writing items: {exc}"
+                raise wrap_aws_error(
+                    exc, "dynamodb_table_migrator bulk_load phase failed writing items"
                 ) from exc
 
         phase_completed = "bulk_load"
@@ -489,11 +483,9 @@ def dynamodb_table_migrator(
                 destination_table_name,
                 region_name,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"dynamodb_table_migrator stream_catchup phase failed: {exc}"
+            raise wrap_aws_error(
+                exc, "dynamodb_table_migrator stream_catchup phase failed"
             ) from exc
 
         phase_completed = "stream_catchup"
@@ -557,8 +549,8 @@ def _create_blue_green_deployment(
     try:
         resp = client.create_blue_green_deployment(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"create_blue_green_deployment failed for {source_db_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"create_blue_green_deployment failed for {source_db_id!r}"
         ) from exc
     return resp["BlueGreenDeployment"]
 
@@ -578,18 +570,18 @@ def _wait_for_green_sync(
                 BlueGreenDeploymentIdentifier=deployment_id
             )
         except ClientError as exc:
-            raise RuntimeError(f"describe_blue_green_deployments failed: {exc}") from exc
+            raise wrap_aws_error(exc, "describe_blue_green_deployments failed") from exc
 
         deployments = resp.get("BlueGreenDeployments", [])
         if not deployments:
-            raise RuntimeError(f"Blue/Green deployment {deployment_id!r} not found")
+            raise AwsServiceError(f"Blue/Green deployment {deployment_id!r} not found")
         deployment = deployments[0]
         status = deployment.get("Status", "")
 
         if status == "AVAILABLE":
             return deployment
         if status in ("INVALID", "FAILED", "DELETING"):
-            raise RuntimeError(
+            raise AwsServiceError(
                 f"Blue/Green deployment {deployment_id!r} reached terminal status: {status}"
             )
         if time.monotonic() >= deadline:
@@ -614,8 +606,8 @@ def _switchover_blue_green(
             SwitchoverTimeout=switchover_timeout,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"switchover_blue_green_deployment failed for {deployment_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"switchover_blue_green_deployment failed for {deployment_id!r}"
         ) from exc
     return resp["BlueGreenDeployment"]
 
@@ -647,7 +639,7 @@ def _update_route53_cname(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(f"Route53 CNAME update failed: {exc}") from exc
+        raise wrap_aws_error(exc, "Route53 CNAME update failed") from exc
     return True
 
 
@@ -661,12 +653,12 @@ def _update_secret_endpoint(
     try:
         resp = client.get_secret_value(SecretId=secret_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to read secret {secret_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to read secret {secret_name!r}") from exc
 
     try:
         secret_data = json.loads(resp["SecretString"])
     except (json.JSONDecodeError, KeyError) as exc:
-        raise RuntimeError(f"Secret {secret_name!r} is not valid JSON: {exc}") from exc
+        raise wrap_aws_error(exc, f"Secret {secret_name!r} is not valid JSON") from exc
 
     secret_data["host"] = new_endpoint
     secret_data["endpoint"] = new_endpoint
@@ -677,7 +669,7 @@ def _update_secret_endpoint(
             SecretString=json.dumps(secret_data),
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to update secret {secret_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update secret {secret_name!r}") from exc
     return True
 
 
@@ -752,11 +744,11 @@ def rds_blue_green_orchestrator(
             desc = rds_client.describe_db_instances(DBInstanceIdentifier=source_db_identifier)
             instances = desc.get("DBInstances", [])
             if not instances:
-                raise RuntimeError(f"DB instance {source_db_identifier!r} not found")
+                raise AwsServiceError(f"DB instance {source_db_identifier!r} not found")
             source_arn = instances[0]["DBInstanceArn"]
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to resolve ARN for {source_db_identifier!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to resolve ARN for {source_db_identifier!r}"
             ) from exc
 
     # Step 2: Create Blue/Green deployment.
@@ -768,12 +760,8 @@ def rds_blue_green_orchestrator(
             db_parameter_group,
             region_name,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"rds_blue_green_orchestrator failed creating deployment: {exc}"
-        ) from exc
+        raise wrap_aws_error(exc, "rds_blue_green_orchestrator failed creating deployment") from exc
 
     deployment_id = deployment["BlueGreenDeploymentIdentifier"]
 
@@ -785,10 +773,8 @@ def rds_blue_green_orchestrator(
             poll_interval=polling_interval,
             region_name=region_name,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"rds_blue_green_orchestrator failed waiting for sync: {exc}") from exc
+        raise wrap_aws_error(exc, "rds_blue_green_orchestrator failed waiting for sync") from exc
 
     # Step 4: Record validation queries (not executed).
     validation_results: list[str] = []
@@ -799,10 +785,8 @@ def rds_blue_green_orchestrator(
     # Step 5: Perform switchover.
     try:
         switched = _switchover_blue_green(deployment_id, switchover_timeout, region_name)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"rds_blue_green_orchestrator switchover failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rds_blue_green_orchestrator switchover failed") from exc
 
     switchover_status = switched.get("Status", "UNKNOWN")
 
@@ -827,20 +811,16 @@ def rds_blue_green_orchestrator(
                 new_endpoint,
                 region_name,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"rds_blue_green_orchestrator DNS update failed: {exc}") from exc
+            raise wrap_aws_error(exc, "rds_blue_green_orchestrator DNS update failed") from exc
 
     # Step 8: Update Secrets Manager secret.
     secret_updated = False
     if secret_name and new_endpoint:
         try:
             secret_updated = _update_secret_endpoint(secret_name, new_endpoint, region_name)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"rds_blue_green_orchestrator secret update failed: {exc}") from exc
+            raise wrap_aws_error(exc, "rds_blue_green_orchestrator secret update failed") from exc
 
     # Step 9: Post-switchover health check via RDS API.
     post_switch_healthy = False

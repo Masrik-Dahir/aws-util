@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.bedrock import BedrockModel, InvokeModelResult
+from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
     "BedrockModel",
     "InvokeModelResult",
-    "invoke_model",
-    "invoke_claude",
-    "invoke_titan_text",
     "chat",
     "embed_text",
+    "invoke_claude",
+    "invoke_model",
+    "invoke_titan_text",
     "list_foundation_models",
     "stream_invoke_claude",
 ]
@@ -57,7 +59,7 @@ async def invoke_model(
             accept=accept,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to invoke Bedrock model {model_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to invoke Bedrock model {model_id!r}") from exc
 
     raw_body = resp.get("body", b"")
     if hasattr(raw_body, "read"):
@@ -294,7 +296,7 @@ async def stream_invoke_claude(
                 except json.JSONDecodeError:
                     break
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to stream Bedrock model {model_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to stream Bedrock model {model_id!r}") from exc
 
 
 async def list_foundation_models(
@@ -321,7 +323,7 @@ async def list_foundation_models(
     try:
         resp = await client.call("ListFoundationModels", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"list_foundation_models failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_foundation_models failed") from exc
     return [
         BedrockModel(
             model_id=m["modelId"],

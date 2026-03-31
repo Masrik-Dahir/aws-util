@@ -9,7 +9,7 @@
 [![Test](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/mutation.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/mutation.yml)
 
 
-A comprehensive Python utility library for **32+ AWS services** with **64 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
+A comprehensive Python utility library for **32+ AWS services** with **64 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, TTL-aware cached boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
 
 ## Installation
 
@@ -25,6 +25,8 @@ pip install aws-util
 - `cryptography >= 42.0` (for KMS envelope encryption)
 - `aiohttp >= 3.9` (for native async `aws_util.aio` modules)
 - AWS credentials configured (environment variables, IAM role, or `~/.aws/credentials`)
+
+This package ships a PEP 561 `py.typed` marker — mypy and pyright will pick up all type annotations automatically.
 
 ---
 
@@ -258,6 +260,7 @@ items = query("Orders", Key("pk").eq("user#1"), scan_index_forward=False)
 from aws_util.sqs import (
     get_queue_url, send_message, receive_messages, delete_message,
     send_large_batch, drain_queue, replay_dlq, wait_for_message,
+    get_queue_attributes,
 )
 
 url = get_queue_url("my-queue")
@@ -270,21 +273,27 @@ for m in messages:
 # Send any number of messages — automatically split into batches of 10
 total = send_large_batch(url, [{"n": i} for i in range(50)])
 
-# Process and delete every message in a queue
+# Process and delete every message in a queue (handler failures are logged)
 def handle(msg):
     print(msg.body_as_json())
 
 processed = drain_queue(url, handler=handle, batch_size=10)
 
-# Move all DLQ messages back to the source queue
+# Move all DLQ messages back to the source queue (preserves MessageAttributes)
 moved = replay_dlq(dlq_url="https://sqs.../my-queue-dlq", target_url=url)
 
-# Block until a matching message arrives (or timeout)
+# Block until a matching message arrives (or timeout).
+# Note: non-matching messages remain invisible for the visibility timeout
+# duration and may delay other consumers.
 msg = wait_for_message(
     url,
     predicate=lambda m: m.body_as_json().get("type") == "order_placed",
     timeout=30.0,
 )
+
+# Fetch queue attributes (message count, ARN, etc.)
+attrs = get_queue_attributes(url)
+print(attrs["ApproximateNumberOfMessages"])
 ```
 
 ---
@@ -292,18 +301,23 @@ msg = wait_for_message(
 ## SNS
 
 ```python
-from aws_util.sns import publish, publish_batch, publish_fan_out, create_topic_if_not_exists
+from aws_util.sns import (
+    publish, publish_batch, publish_fan_out, create_topic_if_not_exists,
+    FanOutFailure,
+)
 
 result = publish("arn:aws:sns:...:my-topic", {"event": "user_signup"})
 publish_batch("arn:aws:sns:...:my-topic", [{"a": 1}, {"b": 2}])
 
-# Fan-out: publish the same event to multiple topics concurrently
+# Fan-out: publish the same event to multiple topics concurrently.
+# Collects all successes/failures before raising; max_concurrency caps threads.
 publish_fan_out(
     ["arn:aws:sns:...:topic-a", "arn:aws:sns:...:topic-b"],
     {"event": "deploy_complete"},
+    max_concurrency=10,
 )
 
-# Idempotent topic creation
+# Idempotent topic creation (fifo=True always sets FifoTopic: "true")
 arn = create_topic_if_not_exists("my-notifications")
 ```
 
@@ -355,9 +369,13 @@ s3 = session.client("s3")
 ## EventBridge
 
 ```python
-from aws_util.eventbridge import put_event, put_events_chunked, list_rules, EventEntry
+from aws_util.eventbridge import put_event, put_events, put_events_chunked, list_rules, EventEntry, PutEventsResult
 
-put_event("com.myapp.orders", "Order Placed", {"order_id": "ord_001"})
+result = put_event("com.myapp.orders", "Order Placed", {"order_id": "ord_001"})
+
+# put_events returns a PutEventsResult on partial failures (raises only when ALL fail)
+result = put_events([EventEntry(source="com.myapp", detail_type="Tick", detail={"n": 1})])
+print(result.successful_count, result.failed_count)
 
 # Publish > 10 events automatically chunked into batches of 10
 events = [EventEntry(source="com.myapp", detail_type="Tick", detail={"n": i}) for i in range(35)]
@@ -1324,7 +1342,7 @@ from aws_util.resilience import (
 
 | Function | Services | Description |
 |---|---|---|
-| `circuit_breaker` | Lambda + DynamoDB | Circuit breaker pattern (closed/open/half-open) with DynamoDB state tracking — prevents cascading failures |
+| `circuit_breaker` | Lambda + DynamoDB | Circuit breaker pattern (closed/open/half-open) with DynamoDB state tracking — called as `circuit_breaker(func, ...)` (not a decorator). Writes to DynamoDB only on state transitions to reduce write volume |
 | `retry_with_backoff` | Lambda (any service) | Decorator for exponential backoff with jitter, configurable retries and exception types |
 | `dlq_monitor_and_alert` | SQS + SNS | Poll SQS DLQ depth, fire SNS alerts when messages accumulate above threshold |
 | `poison_pill_handler` | SQS + S3 + DynamoDB | Detect repeatedly-failing messages via `ApproximateReceiveCount`, quarantine to S3 and/or DynamoDB |
@@ -1626,15 +1644,56 @@ from aws_util.networking import vpc_connectivity_manager
 
 ## Error handling
 
+All AWS errors are classified into a structured exception hierarchy defined in `aws_util.exceptions`. Every exception extends `RuntimeError` for backward compatibility — existing `except RuntimeError` handlers continue to work, while new code can catch the precise type it cares about.
+
+```python
+from aws_util.exceptions import (
+    AwsUtilError,          # Base for all aws-util exceptions (extends RuntimeError)
+    AwsServiceError,       # Catch-all for unclassified AWS API errors
+    AwsThrottlingError,    # API throttling / rate limiting
+    AwsNotFoundError,      # Resource does not exist
+    AwsPermissionError,    # Caller lacks permission
+    AwsConflictError,      # Resource already exists or is in use
+    AwsValidationError,    # Invalid input parameters (also extends ValueError)
+    AwsTimeoutError,       # Polling / operation timeout (also extends TimeoutError)
+    wrap_aws_error,        # Classify any exception into the hierarchy
+    classify_aws_error,    # Classify a botocore ClientError by error code
+)
+```
+
 | Condition | Exception |
 |---|---|
-| Any AWS API call fails | `RuntimeError` |
-| Secret not valid JSON when key specified | `RuntimeError` |
+| AWS API throttling (e.g. `TooManyRequestsException`) | `AwsThrottlingError` |
+| Resource not found (e.g. `ResourceNotFoundException`) | `AwsNotFoundError` |
+| Permission denied (e.g. `AccessDeniedException`) | `AwsPermissionError` |
+| Resource conflict (e.g. `ConflictException`) | `AwsConflictError` |
+| Invalid parameters (e.g. `ValidationException`) | `AwsValidationError` |
+| Any other AWS API call fails | `AwsServiceError` |
+| Secret not valid JSON when key specified | `AwsServiceError` |
 | JSON key not found in secret | `KeyError` |
-| Batch size limit exceeded | `ValueError` |
-| Batch partially fails | `RuntimeError` with details |
+| Batch size limit exceeded | `AwsValidationError` |
+| Batch partially fails (SQS/SNS) | `AwsServiceError` with details |
+| EventBridge partial failure | Returns `PutEventsResult` with failure details |
+| EventBridge all events fail | `AwsServiceError` |
+| SNS fan-out partial failure | `AwsServiceError` after collecting all results |
+| `envelope_decrypt` AES-GCM authentication failure | `AwsServiceError` (from `InvalidTag` or `ValueError`) |
 | Image/document source not specified | `ValueError` |
-| Polling timeout exceeded | `TimeoutError` |
+| Polling timeout exceeded | `AwsTimeoutError` |
+
+### Client caching and credential rotation
+
+boto3 clients are cached per `(service, region)` pair with a **15-minute TTL** and bounded to 64 entries. This ensures STS temporary credentials, `assume_role` sessions, and Lambda execution-role rotations are picked up automatically.
+
+```python
+from aws_util._client import clear_client_cache
+
+# Force immediate credential refresh
+clear_client_cache()
+```
+
+### Placeholder caching
+
+`retrieve()` caches resolved SSM and Secrets Manager values for the lifetime of the process. In warm Lambda containers, call `clear_all_caches()` (or `clear_ssm_cache()` / `clear_secret_cache()`) to force re-resolution after rotation or updates.
 
 ---
 

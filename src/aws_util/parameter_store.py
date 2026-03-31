@@ -3,6 +3,15 @@ from __future__ import annotations
 from botocore.exceptions import ClientError
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "delete_parameter",
+    "get_parameter",
+    "get_parameters_batch",
+    "get_parameters_by_path",
+    "put_parameter",
+]
 
 
 def get_parameters_by_path(
@@ -41,7 +50,7 @@ def get_parameters_by_path(
             for param in page.get("Parameters", []):
                 params[param["Name"]] = param["Value"]
     except ClientError as exc:
-        raise RuntimeError(f"get_parameters_by_path failed for path {path!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_parameters_by_path failed for path {path!r}") from exc
     return params
 
 
@@ -71,7 +80,7 @@ def get_parameters_batch(
     try:
         resp = client.get_parameters(Names=names, WithDecryption=with_decryption)
     except ClientError as exc:
-        raise RuntimeError(f"get_parameters_batch failed: {exc}") from exc
+        raise wrap_aws_error(exc, "get_parameters_batch failed") from exc
     return {p["Name"]: p["Value"] for p in resp.get("Parameters", [])}
 
 
@@ -109,7 +118,7 @@ def put_parameter(
     try:
         client.put_parameter(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to put SSM parameter {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to put SSM parameter {name!r}") from exc
 
 
 def delete_parameter(
@@ -129,7 +138,7 @@ def delete_parameter(
     try:
         client.delete_parameter(Name=name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete SSM parameter {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete SSM parameter {name!r}") from exc
 
 
 def get_parameter(
@@ -163,4 +172,4 @@ def get_parameter(
         resp = client.get_parameter(Name=name, WithDecryption=with_decryption)
         return resp["Parameter"]["Value"]
     except ClientError as exc:
-        raise RuntimeError(f"Error resolving SSM parameter {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Error resolving SSM parameter {name!r}") from exc

@@ -7,6 +7,19 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "BedrockModel",
+    "InvokeModelResult",
+    "chat",
+    "embed_text",
+    "invoke_claude",
+    "invoke_model",
+    "invoke_titan_text",
+    "list_foundation_models",
+    "stream_invoke_claude",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -76,7 +89,7 @@ def invoke_model(
             accept=accept,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to invoke Bedrock model {model_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to invoke Bedrock model {model_id!r}") from exc
 
     raw_body = resp["body"].read()
     try:
@@ -293,7 +306,7 @@ def stream_invoke_claude(
             accept="application/json",
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to stream Bedrock model {model_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to stream Bedrock model {model_id!r}") from exc
 
     for event in resp.get("body", []):
         chunk = event.get("chunk")
@@ -332,7 +345,7 @@ def list_foundation_models(
     try:
         resp = client.list_foundation_models(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"list_foundation_models failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_foundation_models failed") from exc
     return [
         BedrockModel(
             model_id=m["modelId"],

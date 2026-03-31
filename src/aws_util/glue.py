@@ -8,6 +8,20 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "GlueJob",
+    "GlueJobRun",
+    "get_job",
+    "get_job_run",
+    "list_job_runs",
+    "list_jobs",
+    "run_job_and_wait",
+    "start_job_run",
+    "stop_job_run",
+    "wait_for_job_run",
+]
 
 _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "TIMEOUT", "STOPPED", "ERROR"}
 
@@ -97,7 +111,7 @@ def start_job_run(
     try:
         resp = client.start_job_run(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to start Glue job {job_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start Glue job {job_name!r}") from exc
     return resp["JobRunId"]
 
 
@@ -123,7 +137,7 @@ def get_job_run(
     try:
         resp = client.get_job_run(JobName=job_name, RunId=run_id)
     except ClientError as exc:
-        raise RuntimeError(f"get_job_run failed for {job_name!r}/{run_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_job_run failed for {job_name!r}/{run_id!r}") from exc
     return _parse_run(resp["JobRun"])
 
 
@@ -147,7 +161,7 @@ def get_job(
     try:
         resp = client.get_job(JobName=job_name)
     except ClientError as exc:
-        raise RuntimeError(f"get_job failed for {job_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_job failed for {job_name!r}") from exc
     job = resp["Job"]
     return GlueJob(
         job_name=job["Name"],
@@ -180,7 +194,7 @@ def list_jobs(region_name: str | None = None) -> list[str]:
         for page in paginator.paginate():
             names.extend(job["Name"] for job in page.get("Jobs", []))
     except ClientError as exc:
-        raise RuntimeError(f"list_jobs failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_jobs failed") from exc
     return names
 
 
@@ -207,7 +221,7 @@ def list_job_runs(
         for page in paginator.paginate(JobName=job_name):
             runs.extend(_parse_run(r) for r in page.get("JobRuns", []))
     except ClientError as exc:
-        raise RuntimeError(f"list_job_runs failed for {job_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"list_job_runs failed for {job_name!r}") from exc
     return runs
 
 
@@ -312,7 +326,7 @@ def stop_job_run(
     try:
         client.batch_stop_job_run(JobName=job_name, JobRunIds=[run_id])
     except ClientError as exc:
-        raise RuntimeError(f"stop_job_run failed for {job_name!r}/{run_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"stop_job_run failed for {job_name!r}/{run_id!r}") from exc
 
 
 # ---------------------------------------------------------------------------

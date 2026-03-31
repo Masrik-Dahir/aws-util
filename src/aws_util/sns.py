@@ -1,12 +1,25 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "FanOutFailure",
+    "PublishResult",
+    "create_topic_if_not_exists",
+    "publish",
+    "publish_batch",
+    "publish_fan_out",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -20,6 +33,15 @@ class PublishResult(BaseModel):
 
     message_id: str
     sequence_number: str | None = None
+
+
+class FanOutFailure(BaseModel):
+    """Details about a single topic that failed during :func:`publish_fan_out`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    topic_arn: str
+    error: str
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +92,7 @@ def publish(
     try:
         resp = client.publish(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to publish to {topic_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to publish to {topic_arn!r}") from exc
     return PublishResult(
         message_id=resp["MessageId"],
         sequence_number=resp.get("SequenceNumber"),
@@ -111,11 +133,11 @@ def publish_batch(
     try:
         resp = client.publish_batch(TopicArn=topic_arn, PublishBatchRequestEntries=entries)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to batch-publish to {topic_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to batch-publish to {topic_arn!r}") from exc
 
     if resp.get("Failed"):
         failures = [f.get("Message", f.get("Code")) for f in resp["Failed"]]
-        raise RuntimeError(f"Batch publish partially failed for {topic_arn!r}: {failures}")
+        raise AwsServiceError(f"Batch publish partially failed for {topic_arn!r}: {failures}")
 
     return [
         PublishResult(
@@ -135,6 +157,7 @@ def publish_fan_out(
     topic_arns: list[str],
     message: str | dict | list,
     subject: str | None = None,
+    max_concurrency: int = 20,
     region_name: str | None = None,
 ) -> list[PublishResult]:
     """Publish the same message to multiple SNS topics concurrently.
@@ -146,26 +169,48 @@ def publish_fan_out(
         topic_arns: List of SNS topic ARNs to publish to.
         message: Message payload (dicts/lists are JSON-encoded).
         subject: Optional subject for email subscriptions.
+        max_concurrency: Maximum number of concurrent publish threads
+            (default ``20``).  Capped to ``len(topic_arns)``.
         region_name: AWS region override.
 
     Returns:
-        A list of :class:`PublishResult` objects in the same order as
-        *topic_arns*.
+        A list of :class:`PublishResult` for **successfully** published topics,
+        in the same order as the corresponding entries in *topic_arns*.
 
     Raises:
-        RuntimeError: If any publish call fails.
+        AwsServiceError: If one or more publishes fail.  The exception message
+            includes details about which topics failed.  Successfully published
+            results are still collected before the exception is raised.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    workers = min(len(topic_arns), max_concurrency)
     results: dict[int, PublishResult] = {}
-    with ThreadPoolExecutor(max_workers=len(topic_arns)) as pool:
+    failures: list[FanOutFailure] = []
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(publish, arn, message, subject, None, None, region_name): i
             for i, arn in enumerate(topic_arns)
         }
         for future in as_completed(futures):
             idx = futures[future]
-            results[idx] = future.result()
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                failures.append(
+                    FanOutFailure(
+                        topic_arn=topic_arns[idx],
+                        error=str(exc),
+                    )
+                )
+
+    if failures:
+        failed_arns = [f.topic_arn for f in failures]
+        raise AwsServiceError(
+            f"publish_fan_out failed for {len(failures)}/{len(topic_arns)} topic(s): {failed_arns}"
+        )
+
     return [results[i] for i in range(len(topic_arns))]
 
 
@@ -199,13 +244,12 @@ def create_topic_if_not_exists(
         name += ".fifo"
     kwargs: dict[str, Any] = {"Name": name}
     if fifo:
-        attrs = {"FifoTopic": "true"}
-        attrs.update(attributes or {})
+        attrs = {**(attributes or {}), "FifoTopic": "true"}
         kwargs["Attributes"] = attrs
     elif attributes:
         kwargs["Attributes"] = attributes
     try:
         resp = client.create_topic(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create SNS topic {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create SNS topic {name!r}") from exc
     return resp["TopicArn"]

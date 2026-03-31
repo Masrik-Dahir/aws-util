@@ -7,6 +7,17 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "DeliveryStream",
+    "FirehosePutResult",
+    "describe_delivery_stream",
+    "list_delivery_streams",
+    "put_record",
+    "put_record_batch",
+    "put_record_batch_with_retry",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -73,8 +84,8 @@ def put_record(
             Record={"Data": raw},
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"put_record failed on delivery stream {delivery_stream_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"put_record failed on delivery stream {delivery_stream_name!r}"
         ) from exc
     return resp["RecordId"]
 
@@ -106,7 +117,7 @@ def put_record_batch(
     try:
         resp = client.put_record_batch(DeliveryStreamName=delivery_stream_name, Records=entries)
     except ClientError as exc:
-        raise RuntimeError(f"put_record_batch failed on {delivery_stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"put_record_batch failed on {delivery_stream_name!r}") from exc
     return FirehosePutResult(
         failed_put_count=resp.get("FailedPutCount", 0),
         request_responses=resp.get("RequestResponses", []),
@@ -143,7 +154,7 @@ def list_delivery_streams(
                 break
             kwargs["ExclusiveStartDeliveryStreamName"] = names[-1]
     except ClientError as exc:
-        raise RuntimeError(f"list_delivery_streams failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_delivery_streams failed") from exc
     return names
 
 
@@ -167,8 +178,8 @@ def describe_delivery_stream(
     try:
         resp = client.describe_delivery_stream(DeliveryStreamName=delivery_stream_name)
     except ClientError as exc:
-        raise RuntimeError(
-            f"describe_delivery_stream failed for {delivery_stream_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"describe_delivery_stream failed for {delivery_stream_name!r}"
         ) from exc
     desc = resp["DeliveryStreamDescription"]
     return DeliveryStream(
@@ -233,7 +244,7 @@ def put_record_batch_with_retry(
             attempt += 1
 
         if pending:
-            raise RuntimeError(
+            raise AwsServiceError(
                 f"put_record_batch_with_retry: {len(pending)} record(s) still "
                 f"failing after {max_retries} retries on stream "
                 f"{delivery_stream_name!r}"

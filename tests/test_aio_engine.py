@@ -604,7 +604,7 @@ class TestResolveEndpoint:
         mock_session = MagicMock()
         mock_session.get_component.return_value = mock_resolver
 
-        with patch("aws_util.aio._engine.botocore.session.get_session", return_value=mock_session):
+        with patch("aws_util.aio._engine._get_botocore_session", return_value=mock_session):
             url = _resolve_endpoint("nosuch", "eu-west-1")
 
         assert url == "https://nosuch.eu-west-1.amazonaws.com"
@@ -618,7 +618,7 @@ class TestResolveEndpoint:
         mock_session = MagicMock()
         mock_session.get_component.return_value = mock_resolver
 
-        with patch("aws_util.aio._engine.botocore.session.get_session", return_value=mock_session):
+        with patch("aws_util.aio._engine._get_botocore_session", return_value=mock_session):
             url = _resolve_endpoint("myservice", "us-east-1")
 
         assert url == "https://myservice.us-east-1.amazonaws.com"
@@ -631,13 +631,13 @@ class TestDefaultRegion:
     def test_returns_configured_region(self) -> None:
         mock_session = MagicMock()
         mock_session.get_config_variable.return_value = "ap-southeast-1"
-        with patch("aws_util.aio._engine.botocore.session.get_session", return_value=mock_session):
+        with patch("aws_util.aio._engine._get_botocore_session", return_value=mock_session):
             assert _default_region() == "ap-southeast-1"
 
     def test_falls_back_to_us_east_1(self) -> None:
         mock_session = MagicMock()
         mock_session.get_config_variable.return_value = None
-        with patch("aws_util.aio._engine.botocore.session.get_session", return_value=mock_session):
+        with patch("aws_util.aio._engine._get_botocore_session", return_value=mock_session):
             assert _default_region() == "us-east-1"
 
 
@@ -1200,7 +1200,7 @@ class TestAsyncClientInit:
         _endpoint_cache.clear()
         mock_session = MagicMock()
         mock_session.get_config_variable.return_value = "eu-central-1"
-        with patch("aws_util.aio._engine.botocore.session.get_session", return_value=mock_session):
+        with patch("aws_util.aio._engine._get_botocore_session", return_value=mock_session):
             client = AsyncClient("sts")
         assert client._region == "eu-central-1"
 
@@ -1278,3 +1278,84 @@ class TestTransportCloseEdge:
         transport._connector = mock_connector
         await transport.close()
         mock_connector.close.assert_awaited_once()
+
+
+class TestResolveEndpointOverride:
+    def test_env_override_returns_stripped_url(self, monkeypatch: Any) -> None:
+        """When AWS_ENDPOINT_URL is set, _resolve_endpoint returns it
+        (trailing slash stripped)."""
+        _endpoint_cache.clear()
+        monkeypatch.setenv("AWS_ENDPOINT_URL", "http://localhost:4566/")
+        url = _resolve_endpoint("s3", "us-east-1")
+        assert url == "http://localhost:4566"
+
+    def test_env_override_no_trailing_slash(self, monkeypatch: Any) -> None:
+        """AWS_ENDPOINT_URL without trailing slash stays unchanged."""
+        _endpoint_cache.clear()
+        monkeypatch.setenv("AWS_ENDPOINT_URL", "http://localhost:4566")
+        url = _resolve_endpoint("sqs", "us-west-2")
+        assert url == "http://localhost:4566"
+
+
+class TestCallWithStreamTransportRetry:
+    async def test_stream_transport_error_retries_then_raises(
+        self, monkeypatch: Any
+    ) -> None:
+        """call_with_stream retries transport errors and raises after
+        all attempts are exhausted (lines 582-588)."""
+        import aiohttp
+
+        mock_transport = AsyncMock(spec=_Transport)
+        mock_transport.request = AsyncMock(
+            side_effect=aiohttp.ClientError("connection reset")
+        )
+
+        cfg = EngineConfig(retry_max_attempts=2, retry_base_delay=0.0)
+        client = _make_client(monkeypatch, transport=mock_transport, config=cfg)
+        with pytest.raises(RuntimeError, match="stream transport error"):
+            async for _ in client.call_with_stream("GetCallerIdentity"):
+                pass
+        assert mock_transport.request.call_count == 2
+
+    async def test_stream_transport_timeout_retries_then_raises(
+        self, monkeypatch: Any
+    ) -> None:
+        """call_with_stream retries asyncio.TimeoutError and raises."""
+        mock_transport = AsyncMock(spec=_Transport)
+        mock_transport.request = AsyncMock(
+            side_effect=asyncio.TimeoutError()
+        )
+
+        cfg = EngineConfig(retry_max_attempts=2, retry_base_delay=0.0)
+        client = _make_client(monkeypatch, transport=mock_transport, config=cfg)
+        with pytest.raises(RuntimeError, match="stream transport error"):
+            async for _ in client.call_with_stream("GetCallerIdentity"):
+                pass
+
+    async def test_stream_transport_error_retries_then_succeeds(
+        self, monkeypatch: Any
+    ) -> None:
+        """call_with_stream retries a transport error then succeeds on next."""
+        import aiohttp
+
+        mock_transport = AsyncMock(spec=_Transport)
+        ok_resp = AsyncMock()
+        ok_resp.status = 200
+        ok_resp.headers = {}
+
+        async def _iter_chunked(size: int) -> Any:
+            yield b"data"
+
+        ok_resp.content = MagicMock()
+        ok_resp.content.iter_chunked = _iter_chunked
+        ok_resp.release = MagicMock()
+        mock_transport.request = AsyncMock(
+            side_effect=[aiohttp.ClientError("oops"), ok_resp]
+        )
+
+        cfg = EngineConfig(retry_max_attempts=3, retry_base_delay=0.0)
+        client = _make_client(monkeypatch, transport=mock_transport, config=cfg)
+        chunks = []
+        async for chunk in client.call_with_stream("GetCallerIdentity"):
+            chunks.append(chunk)
+        assert chunks == [b"data"]

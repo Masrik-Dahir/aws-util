@@ -437,3 +437,28 @@ def test_tail_log_stream_breaks_on_client_error(monkeypatch, logs_client):
     )
     # Should break after the ClientError
     assert calls["count"] >= 1
+
+
+def test_tail_log_stream_access_denied_reraises(monkeypatch, logs_client):
+    """AccessDeniedException during tail_log_stream should re-raise."""
+    from botocore.exceptions import ClientError as _CE
+    from unittest.mock import MagicMock
+    import aws_util.cloudwatch as cwmod
+
+    mock_client = MagicMock()
+    mock_client.get_log_events.side_effect = _CE(
+        {"Error": {"Code": "AccessDeniedException", "Message": "denied"}},
+        "GetLogEvents",
+    )
+    monkeypatch.setattr(cwmod, "get_client", lambda *a, **kw: mock_client)
+
+    with pytest.raises(RuntimeError, match="tail_log_stream denied"):
+        list(
+            tail_log_stream(
+                LOG_GROUP,
+                LOG_STREAM,
+                poll_interval=0.01,
+                duration_seconds=1.0,
+                region_name=REGION,
+            )
+        )

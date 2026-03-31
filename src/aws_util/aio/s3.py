@@ -5,35 +5,37 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import IO, Any, AsyncIterator
+from typing import IO, Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.s3 import PresignedUrl, S3Object
 
 __all__ = [
-    "S3Object",
     "PresignedUrl",
-    "upload_file",
-    "upload_bytes",
-    "download_file",
-    "download_bytes",
-    "list_objects",
-    "object_exists",
-    "delete_object",
+    "S3Object",
+    "batch_copy",
     "copy_object",
+    "delete_object",
+    "delete_prefix",
+    "download_as_text",
+    "download_bytes",
+    "download_file",
+    "generate_presigned_post",
+    "get_object_metadata",
+    "list_objects",
+    "move_object",
+    "multipart_upload",
+    "object_exists",
     "presigned_url",
     "read_json",
-    "write_json",
     "read_jsonl",
     "sync_folder",
-    "multipart_upload",
-    "delete_prefix",
-    "move_object",
-    "get_object_metadata",
-    "batch_copy",
-    "download_as_text",
-    "generate_presigned_post",
+    "upload_bytes",
+    "upload_file",
+    "write_json",
 ]
 
 
@@ -70,7 +72,7 @@ async def upload_file(
         client = async_client("s3", region_name)
         await client.call("PutObject", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to upload {file_path!r} to s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to upload {file_path!r} to s3://{bucket}/{key}") from exc
 
 
 async def upload_bytes(
@@ -100,7 +102,7 @@ async def upload_bytes(
         client = async_client("s3", region_name)
         await client.call("PutObject", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to upload bytes to s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to upload bytes to s3://{bucket}/{key}") from exc
 
 
 async def download_file(
@@ -130,8 +132,8 @@ async def download_file(
             content = await asyncio.to_thread(body.read)
         await asyncio.to_thread(Path(dest_path).write_bytes, content)
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to download s3://{bucket}/{key} to {dest_path!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to download s3://{bucket}/{key} to {dest_path!r}"
         ) from exc
 
 
@@ -161,7 +163,7 @@ async def download_bytes(
             return body
         return await asyncio.to_thread(body.read)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to download s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to download s3://{bucket}/{key}") from exc
 
 
 async def list_objects(
@@ -195,7 +197,7 @@ async def list_objects(
             Prefix=prefix,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to list objects in s3://{bucket}/{prefix}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to list objects in s3://{bucket}/{prefix}") from exc
     return [
         S3Object(
             bucket=bucket,
@@ -237,7 +239,7 @@ async def object_exists(
         err_str = str(exc)
         if "404" in err_str or "NoSuchKey" in err_str or "Not Found" in err_str:
             return False
-        raise RuntimeError(f"Failed to check existence of s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to check existence of s3://{bucket}/{key}") from exc
 
 
 async def delete_object(
@@ -259,7 +261,7 @@ async def delete_object(
         client = async_client("s3", region_name)
         await client.call("DeleteObject", Bucket=bucket, Key=key)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete s3://{bucket}/{key}") from exc
 
 
 async def copy_object(
@@ -290,8 +292,8 @@ async def copy_object(
             Key=dst_key,
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to copy s3://{src_bucket}/{src_key} \u2192 s3://{dst_bucket}/{dst_key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to copy s3://{src_bucket}/{src_key} \u2192 s3://{dst_bucket}/{dst_key}"
         ) from exc
 
 
@@ -332,8 +334,8 @@ async def presigned_url(
             )
         )
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to generate pre-signed URL for s3://{bucket}/{key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to generate pre-signed URL for s3://{bucket}/{key}"
         ) from exc
     return PresignedUrl(url=url, bucket=bucket, key=key, expires_in=expires_in)
 
@@ -570,7 +572,7 @@ async def multipart_upload(
             Key=key,
             UploadId=upload_id,
         )
-        raise RuntimeError(f"Multipart upload failed for s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Multipart upload failed for s3://{bucket}/{key}") from exc
 
 
 async def delete_prefix(
@@ -604,7 +606,7 @@ async def delete_prefix(
             Prefix=prefix,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"delete_prefix failed for s3://{bucket}/{prefix}: {exc}") from exc
+        raise wrap_aws_error(exc, f"delete_prefix failed for s3://{bucket}/{prefix}") from exc
 
     if not all_items:
         return 0
@@ -622,7 +624,7 @@ async def delete_prefix(
             )
             deleted_count += len(keys)
         except RuntimeError as exc:
-            raise RuntimeError(f"delete_prefix failed for s3://{bucket}/{prefix}: {exc}") from exc
+            raise wrap_aws_error(exc, f"delete_prefix failed for s3://{bucket}/{prefix}") from exc
 
     return deleted_count
 
@@ -675,7 +677,7 @@ async def get_object_metadata(
         client = async_client("s3", region_name)
         resp = await client.call("HeadObject", Bucket=bucket, Key=key)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to get metadata for s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get metadata for s3://{bucket}/{key}") from exc
     return {
         "content_type": resp.get("ContentType"),
         "content_length": resp.get("ContentLength"),
@@ -718,7 +720,7 @@ async def batch_copy(
     await asyncio.gather(*[_copy(op) for op in copies])
 
     if errors:
-        raise RuntimeError(f"batch_copy had {len(errors)} failure(s): {errors[0]}")
+        raise AwsServiceError(f"batch_copy had {len(errors)} failure(s): {errors[0]}")
 
 
 async def download_as_text(
@@ -785,6 +787,6 @@ async def generate_presigned_post(
             )
         )
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to generate presigned POST for s3://{bucket}/{key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to generate presigned POST for s3://{bucket}/{key}"
         ) from exc

@@ -6,18 +6,19 @@ import json
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.ses import EmailAddress, SendEmailResult
 
 __all__ = [
-    "SendEmailResult",
     "EmailAddress",
-    "send_email",
-    "send_templated_email",
-    "send_raw_email",
-    "send_with_attachment",
-    "send_bulk",
-    "verify_email_address",
+    "SendEmailResult",
     "list_verified_email_addresses",
+    "send_bulk",
+    "send_email",
+    "send_raw_email",
+    "send_templated_email",
+    "send_with_attachment",
+    "verify_email_address",
 ]
 
 
@@ -87,7 +88,7 @@ async def send_email(
     try:
         resp = await client.call("SendEmail", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to send email: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to send email") from exc
     return SendEmailResult(message_id=resp["MessageId"])
 
 
@@ -133,8 +134,8 @@ async def send_templated_email(
             TemplateData=json.dumps(template_data),
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to send templated email with template {template_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to send templated email with template {template_name!r}"
         ) from exc
     return SendEmailResult(message_id=resp["MessageId"])
 
@@ -170,7 +171,7 @@ async def send_raw_email(
     try:
         resp = await client.call("SendRawEmail", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to send raw email: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to send raw email") from exc
     return SendEmailResult(message_id=resp["MessageId"])
 
 
@@ -309,7 +310,7 @@ async def verify_email_address(
     try:
         await client.call("VerifyEmailAddress", EmailAddress=email_address)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to verify email address {email_address!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to verify email address {email_address!r}") from exc
 
 
 async def list_verified_email_addresses(
@@ -330,5 +331,5 @@ async def list_verified_email_addresses(
     try:
         resp = await client.call("ListVerifiedEmailAddresses")
     except RuntimeError as exc:
-        raise RuntimeError(f"list_verified_email_addresses failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_verified_email_addresses failed") from exc
     return resp.get("VerifiedEmailAddresses", [])

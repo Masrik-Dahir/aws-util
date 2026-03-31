@@ -8,6 +8,7 @@ from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.cloudformation import CFNStack, _parse_stack
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 __all__ = [
     "CFNStack",
@@ -112,10 +113,8 @@ async def list_stacks(
             token = resp.get("NextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_stacks failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_stacks failed") from exc
     return stacks
 
 
@@ -137,7 +136,7 @@ async def get_stack_outputs(
     """
     stack = await describe_stack(stack_name, region_name=region_name)
     if stack is None:
-        raise RuntimeError(f"Stack {stack_name!r} not found")
+        raise AwsServiceError(f"Stack {stack_name!r} not found")
     return stack.outputs
 
 
@@ -185,10 +184,8 @@ async def create_stack(
 
     try:
         resp = await client.call("CreateStack", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create stack {stack_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create stack {stack_name!r}") from exc
     return resp["StackId"]
 
 
@@ -229,10 +226,8 @@ async def update_stack(
         ]
     try:
         resp = await client.call("UpdateStack", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to update stack {stack_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update stack {stack_name!r}") from exc
     return resp["StackId"]
 
 
@@ -252,10 +247,8 @@ async def delete_stack(
     client = async_client("cloudformation", region_name)
     try:
         await client.call("DeleteStack", StackName=stack_name)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to delete stack {stack_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete stack {stack_name!r}") from exc
 
 
 async def wait_for_stack(
@@ -285,7 +278,7 @@ async def wait_for_stack(
     while True:
         stack = await describe_stack(stack_name, region_name=region_name)
         if stack is None:
-            raise RuntimeError(f"Stack {stack_name!r} not found during wait")
+            raise AwsServiceError(f"Stack {stack_name!r} not found during wait")
         if stack.is_stable:
             return stack
         if _time.monotonic() >= deadline:
@@ -359,7 +352,7 @@ async def deploy_stack(
 
     stack = await wait_for_stack(stack_name, timeout=timeout, region_name=region_name)
     if not stack.is_healthy:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"Stack {stack_name!r} deployment failed with status "
             f"{stack.status!r}: {stack.status_reason}"
         )
@@ -401,9 +394,7 @@ async def get_export_value(
             token = resp.get("NextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"get_export_value failed: {exc}") from exc
+        raise wrap_aws_error(exc, "get_export_value failed") from exc
 
     raise KeyError(f"CloudFormation export {export_name!r} not found")

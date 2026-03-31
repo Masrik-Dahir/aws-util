@@ -1,7 +1,6 @@
 """Native async ai_ml_pipelines — AI/ML Serverless Pipeline utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 
 All Pydantic models are imported from the sync module.
 """
@@ -20,20 +19,21 @@ from aws_util.ai_ml_pipelines import (
     TranslationResult,
 )
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "BedrockChainResult",
     "DocumentProcessorResult",
+    "EmbeddingIndexResult",
     "ImageModerationResult",
     "TranslationResult",
-    "EmbeddingIndexResult",
     "bedrock_serverless_chain",
-    "s3_document_processor",
-    "image_moderation_pipeline",
-    "translation_pipeline",
     "embedding_indexer",
+    "image_moderation_pipeline",
+    "s3_document_processor",
+    "translation_pipeline",
 ]
 
 
@@ -96,7 +96,7 @@ async def bedrock_serverless_chain(
                 accept="application/json",
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Bedrock invocation failed at step {idx}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Bedrock invocation failed at step {idx}") from exc
 
         # The engine returns the parsed response; body may be
         # bytes or a dict depending on the response shape.
@@ -134,7 +134,7 @@ async def bedrock_serverless_chain(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to store conversation {conversation_id}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to store conversation {conversation_id}") from exc
 
     return BedrockChainResult(
         conversation_id=conversation_id,
@@ -190,7 +190,7 @@ async def s3_document_processor(
         else:
             doc_bytes = body_raw
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to read s3://{bucket}/{key}") from exc
 
     # Extract text with Textract
     try:
@@ -199,7 +199,7 @@ async def s3_document_processor(
             Document={"Bytes": doc_bytes},
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Textract extraction failed for {key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Textract extraction failed for {key}") from exc
 
     lines = [
         block["Text"]
@@ -216,7 +216,7 @@ async def s3_document_processor(
             LanguageCode="en",
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Comprehend sentiment analysis failed: {exc}") from exc
+        raise wrap_aws_error(exc, "Comprehend sentiment analysis failed") from exc
 
     sentiment = sentiment_resp.get("Sentiment", "UNKNOWN")
     sentiment_scores = sentiment_resp.get("SentimentScore", {})
@@ -229,7 +229,7 @@ async def s3_document_processor(
             LanguageCode="en",
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Comprehend entity detection failed: {exc}") from exc
+        raise wrap_aws_error(exc, "Comprehend entity detection failed") from exc
 
     entities = entity_resp.get("Entities", [])
 
@@ -251,7 +251,7 @@ async def s3_document_processor(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to store results for {key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to store results for {key}") from exc
 
     return DocumentProcessorResult(
         bucket=bucket,
@@ -313,7 +313,7 @@ async def image_moderation_pipeline(
         else:
             image_bytes = body_raw
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to read s3://{bucket}/{key}") from exc
 
     # Rekognition moderation labels
     try:
@@ -323,7 +323,7 @@ async def image_moderation_pipeline(
             MinConfidence=confidence_threshold,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Rekognition moderation failed for {key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Rekognition moderation failed for {key}") from exc
 
     moderation_labels = mod_resp.get("ModerationLabels", [])
 
@@ -335,7 +335,7 @@ async def image_moderation_pipeline(
             MaxLabels=20,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Rekognition label detection failed for {key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Rekognition label detection failed for {key}") from exc
 
     labels = label_resp.get("Labels", [])
 
@@ -358,7 +358,7 @@ async def image_moderation_pipeline(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to store results for {key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to store results for {key}") from exc
 
     # Send SNS alert if flagged
     alert_sent = False
@@ -382,7 +382,7 @@ async def image_moderation_pipeline(
             alert_sent = True
             message_id = alert_resp.get("MessageId")
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to send moderation alert: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to send moderation alert") from exc
 
     return ImageModerationResult(
         bucket=bucket,
@@ -449,7 +449,7 @@ async def translation_pipeline(
             else:
                 text = str(body_raw)
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to read s3://{bucket}/{src_key}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to read s3://{bucket}/{src_key}") from exc
 
         # Translate
         try:
@@ -460,7 +460,7 @@ async def translation_pipeline(
                 TargetLanguageCode=target_language,
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Translation failed for {src_key}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Translation failed for {src_key}") from exc
 
         translated_text = trans_resp.get("TranslatedText", "")
         detected_source = trans_resp.get("SourceLanguageCode", source_language)
@@ -476,7 +476,7 @@ async def translation_pipeline(
                 ContentType="text/plain",
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to write s3://{bucket}/{out_key}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to write s3://{bucket}/{out_key}") from exc
 
         output_keys.append(out_key)
 
@@ -499,7 +499,7 @@ async def translation_pipeline(
                 },
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to store metadata for {src_key}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to store metadata for {src_key}") from exc
 
         translated_count += 1
 
@@ -558,7 +558,7 @@ async def embedding_indexer(
                 accept="application/json",
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Bedrock embedding failed for item {idx}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Bedrock embedding failed for item {idx}") from exc
 
         resp_body_raw = resp.get("body", b"{}")
         if isinstance(resp_body_raw, (bytes, bytearray)):
@@ -592,7 +592,7 @@ async def embedding_indexer(
                 },
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to store embedding for item {idx}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to store embedding for item {idx}") from exc
 
         items_indexed += 1
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.ecr import ECRAuthToken, ECRImage, ECRRepository
+from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
     "ECRAuthToken",
@@ -52,10 +53,8 @@ async def get_auth_token(
         kwargs["registryIds"] = registry_ids
     try:
         resp = await client.call("GetAuthorizationToken", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"get_auth_token failed: {exc}") from exc
+        raise wrap_aws_error(exc, "get_auth_token failed") from exc
 
     tokens: list[ECRAuthToken] = []
     for auth in resp.get("authorizationData", []):
@@ -115,10 +114,8 @@ async def list_repositories(
             token = resp.get("nextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_repositories failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_repositories failed") from exc
     return repos
 
 
@@ -206,10 +203,8 @@ async def list_images(
             token = resp.get("nextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_images failed for {repository_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"list_images failed for {repository_name!r}") from exc
 
     if not image_ids:
         return []
@@ -237,10 +232,8 @@ async def list_images(
                         image_size_bytes=detail.get("imageSizeInBytes"),
                     )
                 )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"describe_images failed for {repository_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_images failed for {repository_name!r}") from exc
     return images
 
 
@@ -281,10 +274,8 @@ async def ensure_repository(
             imageTagMutability=image_tag_mutability,
             imageScanningConfiguration={"scanOnPush": scan_on_push},
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create ECR repository {repository_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create ECR repository {repository_name!r}") from exc
     repo = resp["repository"]
     return ECRRepository(
         repository_name=repo["repositoryName"],

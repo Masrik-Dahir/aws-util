@@ -5,15 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.sts import AssumedRoleCredentials, CallerIdentity
 
 __all__ = [
-    "CallerIdentity",
     "AssumedRoleCredentials",
-    "get_caller_identity",
-    "get_account_id",
+    "CallerIdentity",
     "assume_role",
     "assume_role_session",
+    "get_account_id",
+    "get_caller_identity",
     "is_valid_account_id",
 ]
 
@@ -43,8 +44,8 @@ async def get_caller_identity(
     try:
         client = async_client("sts", region_name)
         resp = await client.call("GetCallerIdentity")
-    except RuntimeError as exc:
-        raise RuntimeError(f"get_caller_identity failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "get_caller_identity failed") from exc
     return CallerIdentity(
         account_id=resp["Account"],
         arn=resp["Arn"],
@@ -100,8 +101,8 @@ async def assume_role(
     try:
         client = async_client("sts", region_name)
         resp = await client.call("AssumeRole", **kwargs)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to assume role {role_arn!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to assume role {role_arn!r}") from exc
 
     creds = resp["Credentials"]
     return AssumedRoleCredentials(

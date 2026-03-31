@@ -6,6 +6,23 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "EntityResult",
+    "KeyPhrase",
+    "LanguageResult",
+    "PiiEntity",
+    "SentimentResult",
+    "analyze_text",
+    "batch_detect_sentiment",
+    "detect_dominant_language",
+    "detect_entities",
+    "detect_key_phrases",
+    "detect_pii_entities",
+    "detect_sentiment",
+    "redact_pii",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -95,7 +112,7 @@ def detect_sentiment(
     try:
         resp = client.detect_sentiment(Text=text, LanguageCode=language_code)
     except ClientError as exc:
-        raise RuntimeError(f"detect_sentiment failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_sentiment failed") from exc
     scores = resp.get("SentimentScore", {})
     return SentimentResult(
         sentiment=resp["Sentiment"],
@@ -128,7 +145,7 @@ def detect_entities(
     try:
         resp = client.detect_entities(Text=text, LanguageCode=language_code)
     except ClientError as exc:
-        raise RuntimeError(f"detect_entities failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_entities failed") from exc
     return [
         EntityResult(
             text=e["Text"],
@@ -163,7 +180,7 @@ def detect_key_phrases(
     try:
         resp = client.detect_key_phrases(Text=text, LanguageCode=language_code)
     except ClientError as exc:
-        raise RuntimeError(f"detect_key_phrases failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_key_phrases failed") from exc
     return [
         KeyPhrase(
             text=kp["Text"],
@@ -196,7 +213,7 @@ def detect_dominant_language(
     try:
         resp = client.detect_dominant_language(Text=text)
     except ClientError as exc:
-        raise RuntimeError(f"detect_dominant_language failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_dominant_language failed") from exc
     languages = [
         LanguageResult(language_code=lang["LanguageCode"], score=lang["Score"])
         for lang in resp.get("Languages", [])
@@ -232,7 +249,7 @@ def detect_pii_entities(
     try:
         resp = client.detect_pii_entities(Text=text, LanguageCode=language_code)
     except ClientError as exc:
-        raise RuntimeError(f"detect_pii_entities failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_pii_entities failed") from exc
     return [
         PiiEntity(
             pii_type=e["Type"],
@@ -359,11 +376,11 @@ def batch_detect_sentiment(
     try:
         resp = client.batch_detect_sentiment(TextList=texts, LanguageCode=language_code)
     except ClientError as exc:
-        raise RuntimeError(f"batch_detect_sentiment failed: {exc}") from exc
+        raise wrap_aws_error(exc, "batch_detect_sentiment failed") from exc
 
     if resp.get("ErrorList"):
         errors = resp["ErrorList"]
-        raise RuntimeError(f"batch_detect_sentiment had errors: {errors}")
+        raise AwsServiceError(f"batch_detect_sentiment had errors: {errors}")
 
     results = sorted(resp.get("ResultList", []), key=lambda r: r["Index"])
     return [

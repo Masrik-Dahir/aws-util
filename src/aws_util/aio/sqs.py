@@ -4,26 +4,30 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.sqs import SendMessageResult, SQSMessage
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "SQSMessage",
     "SendMessageResult",
-    "get_queue_url",
-    "send_message",
-    "send_batch",
-    "receive_messages",
-    "delete_message",
     "delete_batch",
-    "purge_queue",
+    "delete_message",
     "drain_queue",
-    "replay_dlq",
-    "send_large_batch",
-    "wait_for_message",
     "get_queue_attributes",
+    "get_queue_url",
+    "purge_queue",
+    "receive_messages",
+    "replay_dlq",
+    "send_batch",
+    "send_large_batch",
+    "send_message",
+    "wait_for_message",
 ]
 
 
@@ -52,8 +56,8 @@ async def get_queue_url(
         client = async_client("sqs", region_name)
         resp = await client.call("GetQueueUrl", QueueName=queue_name)
         return resp["QueueUrl"]
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to resolve URL for queue {queue_name!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to resolve URL for queue {queue_name!r}") from exc
 
 
 async def send_message(
@@ -96,8 +100,8 @@ async def send_message(
     try:
         client = async_client("sqs", region_name)
         resp = await client.call("SendMessage", **kwargs)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to send message to {queue_url!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to send message to {queue_url!r}") from exc
     return SendMessageResult(
         message_id=resp["MessageId"],
         sequence_number=resp.get("SequenceNumber"),
@@ -137,12 +141,12 @@ async def send_batch(
     try:
         client = async_client("sqs", region_name)
         resp = await client.call("SendMessageBatch", QueueUrl=queue_url, Entries=entries)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to send message batch to {queue_url!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to send message batch to {queue_url!r}") from exc
 
     if resp.get("Failed"):
         failures = [f["Message"] for f in resp["Failed"]]
-        raise RuntimeError(f"Batch send partially failed for {queue_url!r}: {failures}")
+        raise AwsServiceError(f"Batch send partially failed for {queue_url!r}: {failures}")
 
     return [
         SendMessageResult(
@@ -187,8 +191,8 @@ async def receive_messages(
             AttributeNames=["All"],
             MessageAttributeNames=["All"],
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to receive messages from {queue_url!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to receive messages from {queue_url!r}") from exc
 
     return [
         SQSMessage(
@@ -225,8 +229,8 @@ async def delete_message(
             QueueUrl=queue_url,
             ReceiptHandle=receipt_handle,
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete message from {queue_url!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to delete message from {queue_url!r}") from exc
 
 
 async def delete_batch(
@@ -252,12 +256,12 @@ async def delete_batch(
     try:
         client = async_client("sqs", region_name)
         resp = await client.call("DeleteMessageBatch", QueueUrl=queue_url, Entries=entries)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete message batch from {queue_url!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to delete message batch from {queue_url!r}") from exc
 
     if resp.get("Failed"):
         failures = [f["Message"] for f in resp["Failed"]]
-        raise RuntimeError(f"Batch delete partially failed for {queue_url!r}: {failures}")
+        raise AwsServiceError(f"Batch delete partially failed for {queue_url!r}: {failures}")
 
 
 async def purge_queue(
@@ -278,8 +282,8 @@ async def purge_queue(
     try:
         client = async_client("sqs", region_name)
         await client.call("PurgeQueue", QueueUrl=queue_url)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to purge queue {queue_url!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to purge queue {queue_url!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -355,8 +359,10 @@ async def drain_queue(
                 await delete_message(queue_url, msg.receipt_handle, region_name=region_name)
                 processed += 1
             except Exception:
-                # Leave message visible again -- do not delete
-                pass
+                logger.exception(
+                    "drain_queue handler failed for message %s",
+                    msg.message_id,
+                )
 
     return processed
 
@@ -385,7 +391,17 @@ async def replay_dlq(
     """
 
     async def _replay(msg: SQSMessage) -> None:
-        await send_message(target_url, msg.body, region_name=region_name)
+        kwargs: dict[str, Any] = {
+            "QueueUrl": target_url,
+            "MessageBody": msg.body,
+        }
+        if msg.message_attributes:
+            kwargs["MessageAttributes"] = msg.message_attributes
+        try:
+            client = async_client("sqs", region_name)
+            await client.call("SendMessage", **kwargs)
+        except Exception as exc:
+            raise wrap_aws_error(exc, f"Failed to replay message to {target_url!r}") from exc
 
     return await drain_queue(
         dlq_url,
@@ -433,6 +449,14 @@ async def wait_for_message(
     region_name: str | None = None,
 ) -> SQSMessage | None:
     """Poll a queue until a message matching *predicate* arrives or *timeout* expires.
+
+    .. note::
+
+        Messages that are received but do **not** match *predicate* are
+        neither deleted nor explicitly returned to the queue.  They remain
+        invisible for the duration of *visibility_timeout* and only become
+        available to other consumers once that period expires.  This can
+        delay processing of those messages by other consumers.
 
     Args:
         queue_url: Full SQS queue URL.
@@ -499,6 +523,6 @@ async def get_queue_attributes(
             QueueUrl=queue_url,
             AttributeNames=attributes or ["All"],
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"get_queue_attributes failed for {queue_url!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"get_queue_attributes failed for {queue_url!r}") from exc
     return resp.get("Attributes", {})

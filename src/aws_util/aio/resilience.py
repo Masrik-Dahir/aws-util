@@ -1,7 +1,6 @@
 """Native async resilience — Resilience & Error Handling utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 
 Key differences from the sync module:
 
@@ -22,11 +21,16 @@ import json
 import logging
 import random
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable
+from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.resilience import (
+    _CB_CLOSED,
+    _CB_HALF_OPEN,
+    _CB_OPEN,
     CircuitBreakerResult,
     CircuitBreakerState,
     DLQMonitorResult,
@@ -40,20 +44,20 @@ from aws_util.resilience import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "CircuitBreakerState",
     "CircuitBreakerResult",
-    "RetryResult",
+    "CircuitBreakerState",
     "DLQMonitorResult",
-    "PoisonPillResult",
-    "LambdaDestinationConfig",
     "GracefulDegradationResult",
+    "LambdaDestinationConfig",
+    "PoisonPillResult",
+    "RetryResult",
     "TimeoutSentinelResult",
     "circuit_breaker",
-    "retry_with_backoff",
     "dlq_monitor_and_alert",
-    "poison_pill_handler",
-    "lambda_destination_router",
     "graceful_degradation",
+    "lambda_destination_router",
+    "poison_pill_handler",
+    "retry_with_backoff",
     "timeout_sentinel",
 ]
 
@@ -77,15 +81,15 @@ async def _get_circuit_state(
             Key={"pk": {"S": f"circuit#{circuit_name}"}},
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to read circuit breaker state: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to read circuit breaker state") from exc
 
     item = resp.get("Item")
     if item is None:
-        return CircuitBreakerState(name=circuit_name, state="closed")
+        return CircuitBreakerState(name=circuit_name, state=_CB_CLOSED)
 
     return CircuitBreakerState(
         name=circuit_name,
-        state=item.get("state", {}).get("S", "closed"),
+        state=item.get("state", {}).get("S", _CB_CLOSED),
         failure_count=int(item.get("failure_count", {}).get("N", "0")),
         last_failure_time=float(item.get("last_failure_time", {}).get("N", "0.0")),
         last_success_time=float(item.get("last_success_time", {}).get("N", "0.0")),
@@ -112,7 +116,7 @@ async def _put_circuit_state(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to persist circuit breaker state: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to persist circuit breaker state") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +135,10 @@ async def circuit_breaker(
 ) -> CircuitBreakerResult:
     """Execute *func* with circuit-breaker protection.
 
+    Note: This is called as ``result = await circuit_breaker(func, ...)``
+    rather than used as a decorator.  For decorator-style usage, wrap in
+    a ``lambda`` or :func:`functools.partial`.
+
     The circuit breaker follows the standard pattern:
 
     - **Closed** -- calls pass through normally.  After
@@ -142,7 +150,9 @@ async def circuit_breaker(
       the circuit **closes**; on failure it **opens** again.
 
     State is persisted to a DynamoDB table keyed by
-    ``circuit#<name>``.
+    ``circuit#<name>``.  DynamoDB writes only occur on **state
+    transitions** (e.g. closed -> open, half_open -> closed) to
+    reduce write volume.
 
     Handles both sync and async callables.
 
@@ -162,7 +172,7 @@ async def circuit_breaker(
     now = time.time()
 
     # Open state -- check if recovery timeout has elapsed
-    if state.state == "open":
+    if state.state == _CB_OPEN:
         elapsed = now - state.last_failure_time
         if elapsed < recovery_timeout:
             logger.warning(
@@ -171,7 +181,7 @@ async def circuit_breaker(
             )
             return CircuitBreakerResult(
                 allowed=False,
-                state="open",
+                state=_CB_OPEN,
                 error="Circuit is open",
             )
         # Transition to half-open
@@ -181,7 +191,7 @@ async def circuit_breaker(
         )
         state = CircuitBreakerState(
             name=circuit_name,
-            state="half_open",
+            state=_CB_HALF_OPEN,
             failure_count=state.failure_count,
             last_failure_time=state.last_failure_time,
             last_success_time=state.last_success_time,
@@ -196,9 +206,9 @@ async def circuit_breaker(
             result = func(**call_kwargs)
     except Exception as exc:
         new_count = state.failure_count + 1
-        new_state_name = "open" if new_count >= failure_threshold else "closed"
-        if state.state == "half_open":
-            new_state_name = "open"
+        new_state_name = _CB_OPEN if new_count >= failure_threshold else _CB_CLOSED
+        if state.state == _CB_HALF_OPEN:
+            new_state_name = _CB_OPEN
 
         new_state = CircuitBreakerState(
             name=circuit_name,
@@ -207,7 +217,10 @@ async def circuit_breaker(
             last_failure_time=now,
             last_success_time=state.last_success_time,
         )
-        await _put_circuit_state(table_name, new_state, region_name)
+        # Only write to DynamoDB on state transitions or failure count
+        # changes to reduce write volume on repeated successes.
+        if new_state.state != state.state or new_state.failure_count != state.failure_count:
+            await _put_circuit_state(table_name, new_state, region_name)
         logger.warning(
             "Circuit '%s' call failed (%d/%d): %s",
             circuit_name,
@@ -224,19 +237,21 @@ async def circuit_breaker(
     # Success -- reset to closed
     new_state = CircuitBreakerState(
         name=circuit_name,
-        state="closed",
+        state=_CB_CLOSED,
         failure_count=0,
         last_failure_time=state.last_failure_time,
         last_success_time=now,
     )
-    await _put_circuit_state(table_name, new_state, region_name)
+    # Only write to DynamoDB on state transitions to reduce write volume
+    if new_state.state != state.state or state.failure_count != 0:
+        await _put_circuit_state(table_name, new_state, region_name)
     logger.info(
         "Circuit '%s' call succeeded -- state CLOSED",
         circuit_name,
     )
     return CircuitBreakerResult(
         allowed=True,
-        state="closed",
+        state=_CB_CLOSED,
         result=result,
     )
 
@@ -311,9 +326,7 @@ def retry_with_backoff(
                         base_delay * (2 ** (attempt - 1)),
                         max_delay,
                     )
-                    jitter = random.uniform(  # noqa: S311
-                        0, delay * 0.5
-                    )
+                    jitter = random.uniform(0, delay * 0.5)
                     total_delay = delay + jitter
                     logger.warning(
                         "Retry %d/%d for %s after %.2fs: %s",
@@ -377,7 +390,7 @@ async def dlq_monitor_and_alert(
             AttributeNames=["ApproximateNumberOfMessages"],
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to read DLQ attributes: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to read DLQ attributes") from exc
 
     count = int(attrs.get("Attributes", {}).get("ApproximateNumberOfMessages", "0"))
 
@@ -399,7 +412,7 @@ async def dlq_monitor_and_alert(
             alert_sent = True
             message_id = resp.get("MessageId")
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to publish DLQ alert: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to publish DLQ alert") from exc
 
     logger.info(
         "DLQ %s: %d messages, alert_sent=%s",
@@ -498,8 +511,8 @@ async def poison_pill_handler(
                     ContentType="application/json",
                 )
             except RuntimeError as exc:
-                raise RuntimeError(
-                    f"Failed to quarantine message {message_id} to S3: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to quarantine message {message_id} to S3"
                 ) from exc
 
         # Quarantine to DynamoDB
@@ -516,8 +529,8 @@ async def poison_pill_handler(
                     },
                 )
             except RuntimeError as exc:
-                raise RuntimeError(
-                    f"Failed to quarantine message {message_id} to DynamoDB: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to quarantine message {message_id} to DynamoDB"
                 ) from exc
 
         quarantined += 1
@@ -586,7 +599,7 @@ async def lambda_destination_router(
             DestinationConfig=dest_config,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to configure destinations for {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to configure destinations for {function_name}") from exc
 
     logger.info(
         "Configured destinations for %s: success=%s, failure=%s",
@@ -655,16 +668,18 @@ async def graceful_degradation(
                 Key={"pk": {"S": f"cache#{cache_key}"}},
             )
         except RuntimeError as cache_exc:
-            raise RuntimeError(
-                f"Primary call failed ({primary_exc}) and cache lookup also failed: {cache_exc}"
+            raise wrap_aws_error(
+                cache_exc,
+                f"Primary call failed ({primary_exc}) and cache lookup also failed",
             ) from cache_exc
 
         item = resp.get("Item")
         if item is None:
-            raise RuntimeError(
+            raise wrap_aws_error(
+                primary_exc,
                 f"Primary call failed ({primary_exc}) and "
                 f"no cached response available for "
-                f"key '{cache_key}'."
+                f"key '{cache_key}'.",
             ) from primary_exc
 
         cached_value = json.loads(item["cached_result"]["S"])
@@ -736,7 +751,7 @@ async def timeout_sentinel(
             success=True,
             result=result,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         func_name = getattr(func, "__name__", str(func))
         logger.warning(
             "Timeout sentinel: %s exceeded %.1fs limit",

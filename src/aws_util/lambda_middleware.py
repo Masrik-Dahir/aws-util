@@ -20,8 +20,9 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
@@ -549,7 +550,7 @@ def cold_start_tracker(
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
         def wrapper(event: Any, context: Any) -> Any:
-            global _COLD_START  # noqa: PLW0603
+            global _COLD_START
             is_cold = _COLD_START
             _COLD_START = False
 
@@ -580,7 +581,7 @@ def cold_start_tracker(
 
 def _reset_cold_start() -> None:
     """Reset cold-start state (for testing only)."""
-    global _COLD_START  # noqa: PLW0603
+    global _COLD_START
     _COLD_START = True
 
 

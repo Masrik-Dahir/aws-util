@@ -17,20 +17,21 @@ from aws_util.data_pipeline import (
     GlueJobRun,
     PipelineResult,
 )
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 __all__ = [
-    "GlueJobRun",
     "AthenaQueryResult",
+    "GlueJobRun",
     "PipelineResult",
-    "run_glue_job",
-    "run_athena_query",
-    "fetch_athena_results",
-    "run_glue_then_query",
     "export_query_to_s3_json",
-    "s3_json_to_dynamodb",
-    "s3_jsonl_to_sqs",
+    "fetch_athena_results",
     "kinesis_to_s3_snapshot",
     "parallel_export",
+    "run_athena_query",
+    "run_glue_job",
+    "run_glue_then_query",
+    "s3_json_to_dynamodb",
+    "s3_jsonl_to_sqs",
 ]
 
 
@@ -75,17 +76,15 @@ async def run_glue_job(
 
     try:
         resp = await client.call("StartJobRun", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to start Glue job {job_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start Glue job {job_name!r}") from exc
 
     run_id: str = resp["JobRunId"]
     deadline = time.monotonic() + timeout_minutes * 60
 
     while True:
         if time.monotonic() > deadline:
-            raise RuntimeError(
+            raise AwsServiceError(
                 f"Glue job {job_name!r} run {run_id!r} timed out after {timeout_minutes} minutes."
             )
         try:
@@ -94,11 +93,9 @@ async def run_glue_job(
                 JobName=job_name,
                 RunId=run_id,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to poll Glue job {job_name!r} run {run_id!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to poll Glue job {job_name!r} run {run_id!r}"
             ) from exc
 
         run = run_resp["JobRun"]
@@ -163,26 +160,24 @@ async def run_athena_query(
             ResultConfiguration={"OutputLocation": output_location},
             WorkGroup=workgroup,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to start Athena query: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to start Athena query") from exc
 
     qid: str = resp["QueryExecutionId"]
     deadline = time.monotonic() + timeout_seconds
 
     while True:
         if time.monotonic() > deadline:
-            raise RuntimeError(f"Athena query {qid!r} timed out after {timeout_seconds} seconds.")
+            raise AwsServiceError(
+                f"Athena query {qid!r} timed out after {timeout_seconds} seconds."
+            )
         try:
             status_resp = await client.call(
                 "GetQueryExecution",
                 QueryExecutionId=qid,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to poll Athena query {qid!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to poll Athena query {qid!r}") from exc
 
         execution = status_resp["QueryExecution"]
         state: str = execution["Status"]["State"]
@@ -244,16 +239,14 @@ async def fetch_athena_results(
                 if first_page and i == 0:
                     headers = values
                     continue
-                rows.append(dict(zip(headers, values)))
+                rows.append(dict(zip(headers, values, strict=False)))
             first_page = False
             next_token = resp.get("NextToken")
             if not next_token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to fetch Athena results for {query_execution_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to fetch Athena results for {query_execution_id!r}"
         ) from exc
     return rows
 
@@ -355,7 +348,7 @@ async def export_query_to_s3_json(
     )
 
     if result.state != "SUCCEEDED":
-        raise RuntimeError(
+        raise AwsServiceError(
             f"Athena query {result.query_execution_id!r} ended with "
             f"state {result.state!r}: {result.error_message}"
         )
@@ -374,11 +367,9 @@ async def export_query_to_s3_json(
             Key=output_key,
             Body=body,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to write query results to s3://{output_bucket}/{output_key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to write query results to s3://{output_bucket}/{output_key}"
         ) from exc
 
     return len(rows)
@@ -417,10 +408,8 @@ async def s3_json_to_dynamodb(
             raw = raw_body.decode("utf-8")
         else:
             raw = str(raw_body)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to read s3://{bucket}/{key}") from exc
 
     try:
         items: list[dict[str, Any]] = json.loads(raw)
@@ -450,11 +439,9 @@ async def s3_json_to_dynamodb(
                 "BatchWriteItem",
                 RequestItems=request_items,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"DynamoDB batch_write_item failed for table {table_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"DynamoDB batch_write_item failed for table {table_name!r}"
             ) from exc
         written += len(chunk)
 
@@ -494,10 +481,8 @@ async def s3_jsonl_to_sqs(
             content = raw_body.decode("utf-8")
         else:
             content = str(raw_body)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to read s3://{bucket}/{key}") from exc
 
     lines = [ln for ln in content.splitlines() if ln.strip()]
     sqs = async_client("sqs", region_name)
@@ -513,13 +498,11 @@ async def s3_jsonl_to_sqs(
                 QueueUrl=queue_url,
                 Entries=entries,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to send batch to {queue_url!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to send batch to {queue_url!r}") from exc
         if resp.get("Failed"):
             failures = [f["Message"] for f in resp["Failed"]]
-            raise RuntimeError(f"Partial SQS send failure for {queue_url!r}: {failures}")
+            raise AwsServiceError(f"Partial SQS send failure for {queue_url!r}: {failures}")
         sent += len(chunk)
 
     return sent
@@ -560,10 +543,8 @@ async def kinesis_to_s3_snapshot(
             "DescribeStreamSummary",
             StreamName=stream_name,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to describe Kinesis stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe Kinesis stream {stream_name!r}") from exc
 
     # List shards
     try:
@@ -572,10 +553,8 @@ async def kinesis_to_s3_snapshot(
             StreamName=stream_name,
         )
         shards = shards_resp.get("Shards", [])
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to list shards for stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to list shards for stream {stream_name!r}") from exc
 
     async def _drain_shard(shard_id: str) -> int:
         try:
@@ -585,10 +564,8 @@ async def kinesis_to_s3_snapshot(
                 ShardId=shard_id,
                 ShardIteratorType=shard_iterator_type,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to get shard iterator for {shard_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get shard iterator for {shard_id!r}") from exc
 
         iterator = iter_resp["ShardIterator"]
         records_collected: list[str] = []
@@ -604,10 +581,8 @@ async def kinesis_to_s3_snapshot(
                         max_records_per_shard - collected,
                     ),
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"get_records failed for shard {shard_id!r}: {exc}") from exc
+                raise wrap_aws_error(exc, f"get_records failed for shard {shard_id!r}") from exc
 
             for record in rec_resp.get("Records", []):
                 data_raw = record.get("Data", b"")
@@ -646,11 +621,9 @@ async def kinesis_to_s3_snapshot(
                     Key=s3_key,
                     Body=body,
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to write shard snapshot to s3://{output_bucket}/{s3_key}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to write shard snapshot to s3://{output_bucket}/{s3_key}"
                 ) from exc
 
         return len(records_collected)

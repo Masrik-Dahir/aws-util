@@ -7,6 +7,25 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "IAMPolicy",
+    "IAMRole",
+    "IAMUser",
+    "attach_role_policy",
+    "create_policy",
+    "create_role",
+    "create_role_with_policies",
+    "delete_policy",
+    "delete_role",
+    "detach_role_policy",
+    "ensure_role",
+    "get_role",
+    "list_policies",
+    "list_roles",
+    "list_users",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -92,7 +111,7 @@ def create_role(
             Path=path,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create IAM role {role_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create IAM role {role_name!r}") from exc
     return _parse_role(resp["Role"])
 
 
@@ -112,7 +131,7 @@ def get_role(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "NoSuchEntity":
             return None
-        raise RuntimeError(f"get_role failed for {role_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_role failed for {role_name!r}") from exc
 
 
 def delete_role(
@@ -135,7 +154,7 @@ def delete_role(
     try:
         client.delete_role(RoleName=role_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete IAM role {role_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete IAM role {role_name!r}") from exc
 
 
 def list_roles(
@@ -162,7 +181,7 @@ def list_roles(
             for role in page.get("Roles", []):
                 roles.append(_parse_role(role))
     except ClientError as exc:
-        raise RuntimeError(f"list_roles failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_roles failed") from exc
     return roles
 
 
@@ -185,8 +204,8 @@ def attach_role_policy(
     try:
         client.attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to attach policy {policy_arn!r} to role {role_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to attach policy {policy_arn!r} to role {role_name!r}"
         ) from exc
 
 
@@ -209,8 +228,8 @@ def detach_role_policy(
     try:
         client.detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to detach policy {policy_arn!r} from role {role_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to detach policy {policy_arn!r} from role {role_name!r}"
         ) from exc
 
 
@@ -252,7 +271,7 @@ def create_policy(
             Path=path,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create IAM policy {policy_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create IAM policy {policy_name!r}") from exc
     return _parse_policy(resp["Policy"])
 
 
@@ -275,7 +294,7 @@ def delete_policy(
     try:
         client.delete_policy(PolicyArn=policy_arn)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete IAM policy {policy_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete IAM policy {policy_arn!r}") from exc
 
 
 def list_policies(
@@ -305,7 +324,7 @@ def list_policies(
             for policy in page.get("Policies", []):
                 policies.append(_parse_policy(policy))
     except ClientError as exc:
-        raise RuntimeError(f"list_policies failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_policies failed") from exc
     return policies
 
 
@@ -341,7 +360,7 @@ def list_users(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_users failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_users failed") from exc
     return users
 
 
@@ -422,8 +441,8 @@ def create_role_with_policies(
                     PolicyDocument=json.dumps(policy_doc),
                 )
             except ClientError as exc:
-                raise RuntimeError(
-                    f"Failed to put inline policy {policy_name!r} on role {role_name!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to put inline policy {policy_name!r} on role {role_name!r}"
                 ) from exc
 
     return role

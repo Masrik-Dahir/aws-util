@@ -1,7 +1,6 @@
 """Native async security_automation — automated remediation utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 """
 
 from __future__ import annotations
@@ -9,10 +8,11 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.security_automation import (
     ConfigRemediationResult,
     RemediationResult,
@@ -22,10 +22,10 @@ from aws_util.security_automation import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "RemediationResult",
     "ConfigRemediationResult",
-    "guardduty_auto_remediator",
+    "RemediationResult",
     "config_rules_auto_remediator",
+    "guardduty_auto_remediator",
 ]
 
 
@@ -56,14 +56,12 @@ async def _isolate_ec2_instance(
             )
             reservations = inst_resp.get("Reservations", [])
             if not reservations or not reservations[0].get("Instances"):
-                raise RuntimeError(f"Instance {instance_id} not found")
+                raise AwsServiceError(f"Instance {instance_id} not found")
             instance = reservations[0]["Instances"][0]
             vpc_id = instance.get("VpcId", "")
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"guardduty_auto_remediator DescribeInstances failed for {instance_id!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"guardduty_auto_remediator DescribeInstances failed for {instance_id!r}"
             ) from exc
 
         if not dry_run:
@@ -89,11 +87,9 @@ async def _isolate_ec2_instance(
                         }
                     ],
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"guardduty_auto_remediator CreateSecurityGroup failed: {exc}"
+                raise wrap_aws_error(
+                    exc, "guardduty_auto_remediator CreateSecurityGroup failed"
                 ) from exc
         else:
             sg_id = "dry-run-sg"
@@ -105,13 +101,10 @@ async def _isolate_ec2_instance(
                 InstanceId=instance_id,
                 Groups=[sg_id],
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                "guardduty_auto_remediator "
-                "ModifyInstanceAttribute failed for "
-                f"{instance_id!r}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"guardduty_auto_remediator ModifyInstanceAttribute failed for {instance_id!r}",
             ) from exc
 
     actions.append(f"Replaced security groups on {instance_id} with isolation SG {sg_id}")
@@ -128,10 +121,8 @@ async def _isolate_ec2_instance(
                     },
                 ],
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"guardduty_auto_remediator DescribeVolumes failed: {exc}") from exc
+            raise wrap_aws_error(exc, "guardduty_auto_remediator DescribeVolumes failed") from exc
 
         for vol in vols_resp.get("Volumes", []):
             vol_id = vol["VolumeId"]
@@ -143,11 +134,9 @@ async def _isolate_ec2_instance(
                         Description=(f"Forensic snapshot for GuardDuty finding on {instance_id}"),
                     )
                     snap_id = snap["SnapshotId"]
-                except RuntimeError:
-                    raise
                 except Exception as exc:
-                    raise RuntimeError(
-                        f"guardduty_auto_remediator CreateSnapshot failed for {vol_id!r}: {exc}"
+                    raise wrap_aws_error(
+                        exc, f"guardduty_auto_remediator CreateSnapshot failed for {vol_id!r}"
                     ) from exc
             else:
                 snap_id = f"dry-run-snap-{vol_id}"
@@ -186,11 +175,10 @@ async def _remediate_iam(
                     AccessKeyId=access_key_id,
                     Status="Inactive",
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"guardduty_auto_remediator UpdateAccessKey failed for {access_key_id!r}: {exc}"
+                raise wrap_aws_error(
+                    exc,
+                    f"guardduty_auto_remediator UpdateAccessKey failed for {access_key_id!r}",
                 ) from exc
         actions.append(f"Deactivated access key {access_key_id} for user {user_name}")
         resources.append(access_key_id)
@@ -213,11 +201,9 @@ async def _remediate_iam(
                 PolicyName=("GuardDutyAutoRemediation-DenyAll"),
                 PolicyDocument=json.dumps(deny_policy),
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"guardduty_auto_remediator PutUserPolicy failed for {user_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"guardduty_auto_remediator PutUserPolicy failed for {user_name!r}"
             ) from exc
     actions.append(f"Attached deny-all inline policy to user {user_name}")
     resources.append(user_name)
@@ -252,11 +238,10 @@ async def _block_s3_public_access(
                     "RestrictPublicBuckets": True,
                 },
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"guardduty_auto_remediator PutPublicAccessBlock failed for {bucket_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"guardduty_auto_remediator PutPublicAccessBlock failed for {bucket_name!r}",
             ) from exc
 
     actions.append(f"Enabled Block Public Access on S3 bucket {bucket_name}")
@@ -395,14 +380,12 @@ async def guardduty_auto_remediator(
                         "S": json.dumps(resources_affected),
                     },
                     "timestamp": {
-                        "S": datetime.now(tz=timezone.utc).isoformat(),
+                        "S": datetime.now(tz=UTC).isoformat(),
                     },
                 },
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"guardduty_auto_remediator DynamoDB PutItem failed: {exc}") from exc
+            raise wrap_aws_error(exc, "guardduty_auto_remediator DynamoDB PutItem failed") from exc
 
     # ------------------------------------------------------------------
     # SNS notification (optional)
@@ -430,10 +413,8 @@ async def guardduty_auto_remediator(
                 Message=message,
             )
             notification_sent = True
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"guardduty_auto_remediator SNS Publish failed: {exc}") from exc
+            raise wrap_aws_error(exc, "guardduty_auto_remediator SNS Publish failed") from exc
 
     logger.info(
         "guardduty_auto_remediator: finding=%s, severity=%.1f, actions=%d, dry_run=%s",
@@ -473,11 +454,10 @@ async def _remediate_restrict_ssh(
             "DescribeSecurityGroups",
             GroupIds=[resource_id],
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"config_rules_auto_remediator DescribeSecurityGroups failed for {resource_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"config_rules_auto_remediator DescribeSecurityGroups failed for {resource_id!r}",
         ) from exc
 
     for sg in sg_resp.get("SecurityGroups", []):
@@ -505,16 +485,11 @@ async def _remediate_restrict_ssh(
                                 }
                             ],
                         )
-                    except RuntimeError:
-                        raise
                     except Exception as exc:
-                        raise RuntimeError(
-                            "config_rules_auto_"
-                            "remediator "
-                            "RevokeSecurityGroup"
-                            "Ingress failed for "
-                            f"{resource_id!r}: "
-                            f"{exc}"
+                        raise wrap_aws_error(
+                            exc,
+                            f"config_rules_auto_remediator RevokeSecurityGroupIngress failed for "
+                            f"{resource_id!r}",
                         ) from exc
     return True
 
@@ -543,11 +518,10 @@ async def _remediate_enable_encryption(
                 ],
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"config_rules_auto_remediator PutBucketEncryption failed for {resource_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"config_rules_auto_remediator PutBucketEncryption failed for {resource_id!r}",
         ) from exc
     return True
 
@@ -573,11 +547,10 @@ async def _remediate_block_public_access(
                 "RestrictPublicBuckets": True,
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"config_rules_auto_remediator PutPublicAccessBlock failed for {resource_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"config_rules_auto_remediator PutPublicAccessBlock failed for {resource_id!r}",
         ) from exc
     return True
 
@@ -600,11 +573,10 @@ async def _remediate_enable_versioning(
                 "Status": "Enabled",
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"config_rules_auto_remediator PutBucketVersioning failed for {resource_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"config_rules_auto_remediator PutBucketVersioning failed for {resource_id!r}",
         ) from exc
     return True
 
@@ -630,11 +602,10 @@ async def _remediate_enable_logging(
                 },
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"config_rules_auto_remediator PutBucketLogging failed for {resource_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"config_rules_auto_remediator PutBucketLogging failed for {resource_id!r}",
         ) from exc
     return True
 
@@ -717,13 +688,11 @@ async def config_rules_auto_remediator(
                 ConfigRuleName=rule_name,
                 ComplianceTypes=["NON_COMPLIANT"],
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                "config_rules_auto_remediator "
-                "GetComplianceDetailsByConfigRule "
-                f"failed for {rule_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"config_rules_auto_remediator GetComplianceDetailsByConfigRule failed for "
+                f"{rule_name!r}",
             ) from exc
 
         results = eval_resp.get("EvaluationResults", [])
@@ -797,15 +766,13 @@ async def config_rules_auto_remediator(
                                 "BOOL": success,
                             },
                             "timestamp": {
-                                "S": datetime.now(tz=timezone.utc).isoformat(),
+                                "S": datetime.now(tz=UTC).isoformat(),
                             },
                         },
                     )
-                except RuntimeError:
-                    raise
                 except Exception as exc:
-                    raise RuntimeError(
-                        f"config_rules_auto_remediator DynamoDB PutItem failed: {exc}"
+                    raise wrap_aws_error(
+                        exc, "config_rules_auto_remediator DynamoDB PutItem failed"
                     ) from exc
 
     # ------------------------------------------------------------------
@@ -871,10 +838,8 @@ async def config_rules_auto_remediator(
                 Subject=("Config Rules Auto-Remediation"),
                 Message=message,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"config_rules_auto_remediator SNS Publish failed: {exc}") from exc
+            raise wrap_aws_error(exc, "config_rules_auto_remediator SNS Publish failed") from exc
 
     logger.info(
         "config_rules_auto_remediator: evaluated=%d, non_compliant=%d, succeeded=%d, failed=%d",

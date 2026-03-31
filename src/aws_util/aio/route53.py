@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.route53 import HostedZone, ResourceRecord
 
 __all__ = [
@@ -64,10 +65,8 @@ async def list_hosted_zones(
             if not resp.get("IsTruncated", False):
                 break
             marker = resp.get("NextMarker")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_hosted_zones failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_hosted_zones failed") from exc
     return zones
 
 
@@ -150,10 +149,8 @@ async def list_records(
                 break
             start_name = resp.get("NextRecordName")
             start_type = resp.get("NextRecordType")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_records failed for zone {zone_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"list_records failed for zone {zone_id!r}") from exc
     return records
 
 
@@ -207,10 +204,8 @@ async def upsert_record(
             HostedZoneId=zone_id,
             ChangeBatch=change_batch,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to upsert record {name!r} in zone {zone_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to upsert record {name!r} in zone {zone_id!r}") from exc
     return resp["ChangeInfo"]["Id"]
 
 
@@ -260,11 +255,9 @@ async def delete_record(
             HostedZoneId=zone_id,
             ChangeBatch=change_batch,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to delete record {name!r} from zone {zone_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to delete record {name!r} from zone {zone_id!r}"
         ) from exc
     return resp["ChangeInfo"]["Id"]
 
@@ -311,10 +304,8 @@ async def wait_for_change(
     while True:
         try:
             resp = await client.call("GetChange", Id=change_id)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"wait_for_change failed for {change_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"wait_for_change failed for {change_id!r}") from exc
 
         status = resp["ChangeInfo"]["Status"]
         if status == "INSYNC":
@@ -371,8 +362,6 @@ async def bulk_upsert_records(
             HostedZoneId=zone_id,
             ChangeBatch={"Changes": changes},
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"bulk_upsert_records failed for zone {zone_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"bulk_upsert_records failed for zone {zone_id!r}") from exc
     return resp["ChangeInfo"]["Id"]

@@ -7,6 +7,19 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "EmailAddress",
+    "SendEmailResult",
+    "list_verified_email_addresses",
+    "send_bulk",
+    "send_email",
+    "send_raw_email",
+    "send_templated_email",
+    "send_with_attachment",
+    "verify_email_address",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -101,7 +114,7 @@ def send_email(
     try:
         resp = client.send_email(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to send email: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to send email") from exc
     return SendEmailResult(message_id=resp["MessageId"])
 
 
@@ -146,8 +159,8 @@ def send_templated_email(
             TemplateData=json.dumps(template_data),
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to send templated email with template {template_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to send templated email with template {template_name!r}"
         ) from exc
     return SendEmailResult(message_id=resp["MessageId"])
 
@@ -183,7 +196,7 @@ def send_raw_email(
     try:
         resp = client.send_raw_email(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to send raw email: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to send raw email") from exc
     return SendEmailResult(message_id=resp["MessageId"])
 
 
@@ -322,7 +335,7 @@ def verify_email_address(
     try:
         client.verify_email_address(EmailAddress=email_address)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to verify email address {email_address!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to verify email address {email_address!r}") from exc
 
 
 def list_verified_email_addresses(
@@ -343,5 +356,5 @@ def list_verified_email_addresses(
     try:
         resp = client.list_verified_email_addresses()
     except ClientError as exc:
-        raise RuntimeError(f"list_verified_email_addresses failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_verified_email_addresses failed") from exc
     return resp.get("VerifiedEmailAddresses", [])

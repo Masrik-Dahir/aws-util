@@ -16,13 +16,14 @@ import logging
 import secrets
 import string
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,7 @@ def database_credential_rotator(
     """
     sm = get_client("secretsmanager", region_name)
     password = new_password or _generate_password()
-    rotation_ts = datetime.now(timezone.utc).isoformat()
+    rotation_ts = datetime.now(UTC).isoformat()
 
     # ------------------------------------------------------------------
     # Step 1: CREATE -- put new secret version with AWSPENDING label
@@ -144,7 +145,7 @@ def database_credential_rotator(
     try:
         current_resp = sm.get_secret_value(SecretId=secret_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to retrieve current secret {secret_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to retrieve current secret {secret_name!r}") from exc
 
     current_value = current_resp.get("SecretString", "{}")
     try:
@@ -164,7 +165,7 @@ def database_credential_rotator(
             VersionStages=["AWSPENDING"],
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to put AWSPENDING secret for {secret_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to put AWSPENDING secret for {secret_name!r}") from exc
 
     new_version_id = put_resp["VersionId"]
     logger.info(
@@ -189,14 +190,14 @@ def database_credential_rotator(
         pending_dict = json.loads(pending_str)
         validation_passed = "password" in pending_dict
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to validate AWSPENDING secret for {secret_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to validate AWSPENDING secret for {secret_name!r}"
         ) from exc
     except (json.JSONDecodeError, TypeError):
         validation_passed = False
 
     if not validation_passed:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"Validation failed for AWSPENDING secret {secret_name!r}: 'password' key missing"
         )
 
@@ -227,8 +228,8 @@ def database_credential_rotator(
             )
             consumers_notified += 1
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to publish rotation notification to {consumer_sns_topic_arn!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to publish rotation notification to {consumer_sns_topic_arn!r}"
             ) from exc
 
     if signal_table_name is not None:
@@ -245,8 +246,8 @@ def database_credential_rotator(
             )
             consumers_notified += 1
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to write rotation signal to table {signal_table_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to write rotation signal to table {signal_table_name!r}"
             ) from exc
 
     logger.info(
@@ -284,7 +285,7 @@ def database_credential_rotator(
     try:
         metadata_resp = sm.describe_secret(SecretId=secret_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe secret {secret_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe secret {secret_name!r}") from exc
 
     versions = metadata_resp.get("VersionIdsToStages", {})
     current_version: str | None = None
@@ -304,7 +305,7 @@ def database_credential_rotator(
         sm.update_secret_version_stage(**kwargs)
         finalized = True
     except ClientError as exc:
-        raise RuntimeError(f"Failed to finalize rotation for {secret_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to finalize rotation for {secret_name!r}") from exc
 
     # Record in history table
     if history_table_name is not None:
@@ -322,8 +323,8 @@ def database_credential_rotator(
                 },
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to record rotation history in table {history_table_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to record rotation history in table {history_table_name!r}"
             ) from exc
 
     logger.info(

@@ -6,6 +6,16 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "create_secret",
+    "delete_secret",
+    "get_secret",
+    "list_secrets",
+    "rotate_secret",
+    "update_secret",
+]
 
 
 def create_secret(
@@ -45,7 +55,7 @@ def create_secret(
     try:
         resp = client.create_secret(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create secret {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create secret {name!r}") from exc
     return resp["ARN"]
 
 
@@ -69,7 +79,7 @@ def update_secret(
     try:
         client.update_secret(SecretId=name, SecretString=raw)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to update secret {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update secret {name!r}") from exc
 
 
 def delete_secret(
@@ -100,7 +110,7 @@ def delete_secret(
     try:
         client.delete_secret(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete secret {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete secret {name!r}") from exc
 
 
 def list_secrets(
@@ -140,7 +150,7 @@ def list_secrets(
                     }
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_secrets failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_secrets failed") from exc
     return secrets
 
 
@@ -176,7 +186,7 @@ def rotate_secret(
     try:
         client.rotate_secret(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to rotate secret {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to rotate secret {name!r}") from exc
 
 
 def get_secret(
@@ -224,7 +234,7 @@ def get_secret(
     try:
         resp = client.get_secret_value(SecretId=secret_id)
     except ClientError as exc:
-        raise RuntimeError(f"Error resolving secret {secret_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Error resolving secret {secret_id!r}") from exc
 
     secret_str: str = (
         resp["SecretString"] if "SecretString" in resp else resp["SecretBinary"].decode("utf-8")
@@ -236,8 +246,8 @@ def get_secret(
     try:
         data: dict = json.loads(secret_str)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            f"Secret {secret_id!r} is not valid JSON; cannot extract key {json_key!r}"
+        raise wrap_aws_error(
+            exc, f"Secret {secret_id!r} is not valid JSON; cannot extract key {json_key!r}"
         ) from exc
 
     if json_key not in data:

@@ -6,6 +6,7 @@ from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.cognito import AuthResult, CognitoUser, CognitoUserPool
+from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
     "AuthResult",
@@ -89,7 +90,7 @@ async def admin_create_user(
     try:
         resp = await client.call("AdminCreateUser", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create Cognito user {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create Cognito user {username!r}") from exc
     return _parse_user(resp["User"])
 
 
@@ -113,7 +114,7 @@ async def admin_get_user(
     except RuntimeError as exc:
         if "UserNotFoundException" in str(exc):
             return None
-        raise RuntimeError(f"admin_get_user failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"admin_get_user failed for {username!r}") from exc
     attrs = {a["Name"]: a["Value"] for a in resp.get("UserAttributes", [])}
     return CognitoUser(
         username=resp["Username"],
@@ -148,7 +149,7 @@ async def admin_delete_user(
             Username=username,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete Cognito user {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete Cognito user {username!r}") from exc
 
 
 async def admin_set_user_password(
@@ -181,7 +182,7 @@ async def admin_set_user_password(
             Permanent=permanent,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to set password for Cognito user {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to set password for Cognito user {username!r}") from exc
 
 
 async def admin_add_user_to_group(
@@ -210,7 +211,7 @@ async def admin_add_user_to_group(
             GroupName=group_name,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to add {username!r} to group {group_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to add {username!r} to group {group_name!r}") from exc
 
 
 async def admin_remove_user_from_group(
@@ -239,8 +240,8 @@ async def admin_remove_user_from_group(
             GroupName=group_name,
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to remove {username!r} from group {group_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to remove {username!r} from group {group_name!r}"
         ) from exc
 
 
@@ -281,7 +282,7 @@ async def list_users(
             **kwargs,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"list_users failed for pool {user_pool_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"list_users failed for pool {user_pool_id!r}") from exc
     return [_parse_user(user) for user in items]
 
 
@@ -320,7 +321,7 @@ async def admin_initiate_auth(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"admin_initiate_auth failed: {exc}") from exc
+        raise wrap_aws_error(exc, "admin_initiate_auth failed") from exc
     result = resp.get("AuthenticationResult", {})
     return AuthResult(
         access_token=result.get("AccessToken"),
@@ -366,7 +367,7 @@ async def list_user_pools(
                 break
             kwargs["NextToken"] = next_token
     except RuntimeError as exc:
-        raise RuntimeError(f"list_user_pools failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_user_pools failed") from exc
     return pools
 
 
@@ -472,4 +473,4 @@ async def reset_user_password(
             Username=username,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"reset_user_password failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"reset_user_password failed for {username!r}") from exc

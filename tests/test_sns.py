@@ -5,6 +5,7 @@ import boto3
 import pytest
 
 from aws_util.sns import (
+    FanOutFailure,
     PublishResult,
     create_topic_if_not_exists,
     publish,
@@ -158,6 +159,45 @@ def test_publish_fan_out_with_subject(topic, extra_topic):
 def test_publish_fan_out_single_topic(topic):
     results = publish_fan_out([topic], "single", region_name=REGION)
     assert len(results) == 1
+
+
+def test_publish_fan_out_failure_raises_with_details(topic):
+    """When one topic fails, AwsServiceError is raised after all futures complete."""
+    bad_arn = "arn:aws:sns:us-east-1:000000000000:does-not-exist"
+    with pytest.raises(RuntimeError, match="publish_fan_out failed"):
+        publish_fan_out(
+            [topic, bad_arn],
+            "broadcast",
+            region_name=REGION,
+        )
+
+
+def test_publish_fan_out_respects_max_concurrency(topic, extra_topic):
+    """max_concurrency parameter is accepted and does not break behaviour."""
+    results = publish_fan_out(
+        [topic, extra_topic],
+        "msg",
+        max_concurrency=1,
+        region_name=REGION,
+    )
+    assert len(results) == 2
+
+
+def test_fanout_failure_model():
+    f = FanOutFailure(topic_arn="arn:aws:sns:us-east-1:123:t", error="boom")
+    assert f.topic_arn.endswith(":t")
+    assert f.error == "boom"
+
+
+def test_create_topic_fifo_overrides_caller_false():
+    """FifoTopic=true must win even if caller passes FifoTopic=false."""
+    arn = create_topic_if_not_exists(
+        "override-fifo",
+        fifo=True,
+        attributes={"FifoTopic": "false"},
+        region_name=REGION,
+    )
+    assert "override-fifo.fifo" in arn
 
 
 # ---------------------------------------------------------------------------

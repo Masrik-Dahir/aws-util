@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.stepfunctions import (
     SFNExecution,
     StateMachine,
@@ -16,14 +17,14 @@ from aws_util.stepfunctions import (
 __all__ = [
     "SFNExecution",
     "StateMachine",
-    "start_execution",
     "describe_execution",
-    "stop_execution",
+    "get_execution_history",
     "list_executions",
-    "wait_for_execution",
     "list_state_machines",
     "run_and_wait",
-    "get_execution_history",
+    "start_execution",
+    "stop_execution",
+    "wait_for_execution",
 ]
 
 
@@ -61,10 +62,8 @@ async def start_execution(
         kwargs["name"] = name
     try:
         resp = await client.call("StartExecution", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to start execution for {state_machine_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start execution for {state_machine_arn!r}") from exc
     return SFNExecution(
         execution_arn=resp["executionArn"],
         state_machine_arn=state_machine_arn,
@@ -93,10 +92,8 @@ async def describe_execution(
     client = async_client("stepfunctions", region_name)
     try:
         resp = await client.call("DescribeExecution", executionArn=execution_arn)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"describe_execution failed for {execution_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_execution failed for {execution_arn!r}") from exc
     return _parse_execution(resp)
 
 
@@ -125,10 +122,8 @@ async def stop_execution(
             error=error,
             cause=cause,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"stop_execution failed for {execution_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"stop_execution failed for {execution_arn!r}") from exc
 
 
 async def list_executions(
@@ -178,10 +173,8 @@ async def list_executions(
             token = resp.get("nextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_executions failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_executions failed") from exc
     return executions
 
 
@@ -254,10 +247,8 @@ async def list_state_machines(
             token = resp.get("nextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_state_machines failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_state_machines failed") from exc
     return machines
 
 
@@ -345,8 +336,6 @@ async def get_execution_history(
             token = resp.get("nextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"get_execution_history failed for {execution_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_execution_history failed for {execution_arn!r}") from exc
     return events

@@ -9,18 +9,18 @@ from aws_util.dynamodb import DynamoKey
 
 __all__ = [
     "DynamoKey",
-    "get_item",
-    "put_item",
-    "update_item",
-    "delete_item",
-    "query",
-    "scan",
+    "atomic_increment",
     "batch_get",
     "batch_write",
-    "transact_write",
-    "transact_get",
-    "atomic_increment",
+    "delete_item",
+    "get_item",
     "put_if_not_exists",
+    "put_item",
+    "query",
+    "scan",
+    "transact_get",
+    "transact_write",
+    "update_item",
 ]
 
 

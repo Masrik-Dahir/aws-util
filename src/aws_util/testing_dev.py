@@ -32,8 +32,24 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "DynamoDBSeederResult",
+    "IntegrationTestResult",
+    "InvokeRecordResult",
+    "LambdaEventResult",
+    "MockEventSourceResult",
+    "SnapshotTestResult",
+    "integration_test_harness",
+    "lambda_event_generator",
+    "lambda_invoke_recorder",
+    "local_dynamodb_seeder",
+    "mock_event_source",
+    "snapshot_tester",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -315,7 +331,7 @@ def _kinesis_event(body: dict[str, Any], source_arn: str) -> dict[str, Any]:
                 },
                 "eventSource": "aws:kinesis",
                 "eventVersion": "1.0",
-                "eventID": f"shardId-000000000006:{str(uuid.uuid4())}",
+                "eventID": f"shardId-000000000006:{uuid.uuid4()!s}",
                 "eventName": "aws:kinesis:record",
                 "invokeIdentityArn": source_arn,
                 "awsRegion": "us-east-1",
@@ -390,7 +406,7 @@ def local_dynamodb_seeder(
             client.put_item(TableName=table_name, Item=ddb_item)
             written += 1
         except ClientError as exc:
-            raise RuntimeError(f"Failed to write item to {table_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to write item to {table_name}") from exc
 
     logger.info(
         "Seeded %d items into %s (format=%s)",
@@ -492,7 +508,7 @@ def integration_test_harness(
         resp = cfn.create_stack(**create_kwargs)
         stack_id = resp["StackId"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create stack {stack_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create stack {stack_name}") from exc
 
     # Wait for stack creation
     try:
@@ -502,7 +518,7 @@ def integration_test_harness(
             WaiterConfig={"Delay": 5, "MaxAttempts": 60},
         )
     except Exception as exc:
-        raise RuntimeError(f"Stack {stack_name} creation did not complete: {exc}") from exc
+        raise wrap_aws_error(exc, f"Stack {stack_name} creation did not complete") from exc
 
     # Run tests
     passed = 0
@@ -534,7 +550,7 @@ def integration_test_harness(
             cfn.delete_stack(StackName=stack_name)
             torn_down = True
         except ClientError as exc:
-            raise RuntimeError(f"Failed to delete stack {stack_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to delete stack {stack_name}") from exc
 
     return IntegrationTestResult(
         stack_name=stack_name,
@@ -577,11 +593,11 @@ def _test_lambda_invoke(
             Payload=json.dumps(payload),
         )
     except ClientError as exc:
-        raise RuntimeError(f"Lambda invoke failed for {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Lambda invoke failed for {function_name}") from exc
 
     status = resp.get("StatusCode", 0)
     if status != 200:
-        raise RuntimeError(f"Lambda {function_name} returned status {status}")
+        raise AwsServiceError(f"Lambda {function_name} returned status {status}")
 
 
 def _test_dynamodb_check(
@@ -596,10 +612,10 @@ def _test_dynamodb_check(
     try:
         resp = ddb.get_item(TableName=table_name, Key=key)
     except ClientError as exc:
-        raise RuntimeError(f"DynamoDB check failed for {table_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"DynamoDB check failed for {table_name}") from exc
 
     if "Item" not in resp:
-        raise RuntimeError(f"Item not found in {table_name} for key {key}")
+        raise AwsServiceError(f"Item not found in {table_name} for key {key}")
 
 
 def _test_sqs_check(
@@ -617,11 +633,11 @@ def _test_sqs_check(
             AttributeNames=["ApproximateNumberOfMessages"],
         )
     except ClientError as exc:
-        raise RuntimeError(f"SQS check failed for {queue_url}: {exc}") from exc
+        raise wrap_aws_error(exc, f"SQS check failed for {queue_url}") from exc
 
     count = int(attrs.get("Attributes", {}).get("ApproximateNumberOfMessages", "0"))
     if count < min_messages:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"SQS {queue_url} has {count} messages, expected at least {min_messages}"
         )
 
@@ -668,7 +684,7 @@ def mock_event_source(
         queue_resp = sqs.create_queue(QueueName=queue_name)
         queue_url = queue_resp["QueueUrl"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create SQS queue {queue_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create SQS queue {queue_name}") from exc
 
     # Get queue ARN
     try:
@@ -678,13 +694,13 @@ def mock_event_source(
         )
         queue_arn = attr_resp["Attributes"]["QueueArn"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to get queue ARN for {queue_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get queue ARN for {queue_name}") from exc
 
     # Create S3 bucket
     try:
         s3.create_bucket(Bucket=bucket_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create S3 bucket {bucket_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create S3 bucket {bucket_name}") from exc
 
     # Create event source mapping (SQS -> Lambda)
     try:
@@ -695,7 +711,7 @@ def mock_event_source(
         )
         esm_uuid = esm_resp["UUID"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create event source mapping: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to create event source mapping") from exc
 
     logger.info(
         "Created mock event source: bucket=%s, queue=%s, func=%s",
@@ -759,7 +775,7 @@ def lambda_invoke_recorder(
             Payload=json.dumps(payload),
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to invoke {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to invoke {function_name}") from exc
 
     response_payload = json.loads(resp["Payload"].read().decode("utf-8"))
 
@@ -787,7 +803,7 @@ def lambda_invoke_recorder(
             )
             targets.append(f"s3://{storage_bucket}/{key}")
         except ClientError as exc:
-            raise RuntimeError(f"Failed to store recording to S3: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to store recording to S3") from exc
 
     # Store to DynamoDB
     if storage_table:
@@ -805,7 +821,7 @@ def lambda_invoke_recorder(
             )
             targets.append(f"dynamodb://{storage_table}")
         except ClientError as exc:
-            raise RuntimeError(f"Failed to store recording to DynamoDB: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to store recording to DynamoDB") from exc
 
     logger.info(
         "Recorded invocation for %s: %s",
@@ -865,7 +881,7 @@ def snapshot_tester(
             Payload=json.dumps(payload),
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to invoke {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to invoke {function_name}") from exc
 
     current_output = json.loads(resp["Payload"].read().decode("utf-8"))
     current_json = json.dumps(current_output, sort_keys=True)
@@ -887,7 +903,7 @@ def snapshot_tester(
                     ContentType="application/json",
                 )
             except ClientError as put_exc:
-                raise RuntimeError(f"Failed to create baseline snapshot: {put_exc}") from put_exc
+                raise wrap_aws_error(put_exc, "Failed to create baseline snapshot") from put_exc
             logger.info(
                 "Created baseline snapshot for %s at s3://%s/%s",
                 function_name,
@@ -899,7 +915,7 @@ def snapshot_tester(
                 snapshot_key=snapshot_key,
                 matches=True,
             )
-        raise RuntimeError(f"Failed to fetch baseline snapshot: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to fetch baseline snapshot") from exc
 
     # Compare
     matches = current_json == baseline_json
@@ -932,7 +948,7 @@ def snapshot_tester(
             alert_sent = True
             message_id = sns_resp.get("MessageId")
         except ClientError as exc:
-            raise RuntimeError(f"Failed to publish snapshot alert: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to publish snapshot alert") from exc
 
     return SnapshotTestResult(
         function_name=function_name,

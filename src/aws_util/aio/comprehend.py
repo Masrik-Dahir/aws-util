@@ -13,21 +13,22 @@ from aws_util.comprehend import (
     PiiEntity,
     SentimentResult,
 )
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 __all__ = [
-    "SentimentResult",
     "EntityResult",
     "KeyPhrase",
     "LanguageResult",
     "PiiEntity",
-    "detect_sentiment",
+    "SentimentResult",
+    "analyze_text",
+    "batch_detect_sentiment",
+    "detect_dominant_language",
     "detect_entities",
     "detect_key_phrases",
-    "detect_dominant_language",
     "detect_pii_entities",
-    "analyze_text",
+    "detect_sentiment",
     "redact_pii",
-    "batch_detect_sentiment",
 ]
 
 
@@ -53,8 +54,8 @@ async def detect_sentiment(
     client = async_client("comprehend", region_name)
     try:
         resp = await client.call("DetectSentiment", Text=text, LanguageCode=language_code)
-    except RuntimeError as exc:
-        raise RuntimeError(f"detect_sentiment failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "detect_sentiment failed") from exc
     scores = resp.get("SentimentScore", {})
     return SentimentResult(
         sentiment=resp["Sentiment"],
@@ -86,8 +87,8 @@ async def detect_entities(
     client = async_client("comprehend", region_name)
     try:
         resp = await client.call("DetectEntities", Text=text, LanguageCode=language_code)
-    except RuntimeError as exc:
-        raise RuntimeError(f"detect_entities failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "detect_entities failed") from exc
     return [
         EntityResult(
             text=e["Text"],
@@ -121,8 +122,8 @@ async def detect_key_phrases(
     client = async_client("comprehend", region_name)
     try:
         resp = await client.call("DetectKeyPhrases", Text=text, LanguageCode=language_code)
-    except RuntimeError as exc:
-        raise RuntimeError(f"detect_key_phrases failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "detect_key_phrases failed") from exc
     return [
         KeyPhrase(
             text=kp["Text"],
@@ -154,8 +155,8 @@ async def detect_dominant_language(
     client = async_client("comprehend", region_name)
     try:
         resp = await client.call("DetectDominantLanguage", Text=text)
-    except RuntimeError as exc:
-        raise RuntimeError(f"detect_dominant_language failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "detect_dominant_language failed") from exc
     languages = [
         LanguageResult(language_code=lang["LanguageCode"], score=lang["Score"])
         for lang in resp.get("Languages", [])
@@ -190,8 +191,8 @@ async def detect_pii_entities(
     client = async_client("comprehend", region_name)
     try:
         resp = await client.call("DetectPiiEntities", Text=text, LanguageCode=language_code)
-    except RuntimeError as exc:
-        raise RuntimeError(f"detect_pii_entities failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "detect_pii_entities failed") from exc
     return [
         PiiEntity(
             pii_type=e["Type"],
@@ -247,7 +248,7 @@ async def analyze_text(
         keys.append("pii_entities")
 
     gathered = await asyncio.gather(*coros)
-    results: dict[str, Any] = dict(zip(keys, gathered))
+    results: dict[str, Any] = dict(zip(keys, gathered, strict=False))
 
     if "pii_entities" not in results:
         results["pii_entities"] = []
@@ -318,12 +319,12 @@ async def batch_detect_sentiment(
             TextList=texts,
             LanguageCode=language_code,
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"batch_detect_sentiment failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "batch_detect_sentiment failed") from exc
 
     if resp.get("ErrorList"):
         errors = resp["ErrorList"]
-        raise RuntimeError(f"batch_detect_sentiment had errors: {errors}")
+        raise AwsServiceError(f"batch_detect_sentiment had errors: {errors}")
 
     results = sorted(resp.get("ResultList", []), key=lambda r: r["Index"])
     return [

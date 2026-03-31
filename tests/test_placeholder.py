@@ -159,3 +159,37 @@ def test_resolve_secret_cached(populated_secrets):
     r1 = _resolve_secret("myapp/creds")
     r2 = _resolve_secret("myapp/creds")
     assert r1 == r2 == "top-secret"
+
+
+# ---------------------------------------------------------------------------
+# Nested placeholders: ${secret:${ssm:/path}:json_key}
+# ---------------------------------------------------------------------------
+
+
+def test_nested_ssm_inside_secret(populated_ssm, populated_secrets):
+    """SSM resolves first, producing a secret name that is then resolved."""
+    # Store the secret name as an SSM parameter
+    populated_ssm.put_parameter(
+        Name="/myapp/secret-ref",
+        Value="myapp/json-creds",
+        Type="String",
+    )
+    result = retrieve("${secret:${ssm:/myapp/secret-ref}:password}")
+    assert result == "pw123"
+
+
+def test_nested_ssm_inside_secret_no_json_key(populated_ssm, populated_secrets):
+    """Nested SSM → secret without a JSON key."""
+    populated_ssm.put_parameter(
+        Name="/myapp/secret-ref",
+        Value="myapp/creds",
+        Type="String",
+    )
+    result = retrieve("${secret:${ssm:/myapp/secret-ref}}")
+    assert result == "top-secret"
+
+
+def test_multiple_ssm_then_secret(populated_ssm, populated_secrets):
+    """Multiple SSM placeholders resolved before secrets."""
+    result = retrieve("${ssm:/myapp/db/host}:${secret:myapp/creds}")
+    assert result == "db.example.com:top-secret"

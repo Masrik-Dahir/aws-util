@@ -25,14 +25,35 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "ApiGatewayStageResult",
+    "CustomResourceResponse",
+    "InfrastructureDiffResult",
+    "LambdaVpcResult",
+    "MultiRegionFailoverResult",
+    "ResourceCleanupResult",
+    "ScheduledScalingResult",
+    "StackOutputResult",
+    "api_gateway_stage_manager",
+    "custom_resource_handler",
+    "infrastructure_diff_reporter",
+    "lambda_vpc_connector",
+    "multi_region_failover",
+    "resource_cleanup_scheduler",
+    "scheduled_scaling_manager",
+    "stack_output_resolver",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -188,8 +209,8 @@ def scheduled_scaling_manager(
                 ScalableTargetAction=scalable_target_action,
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to create scheduled action '{scheduled_action_name}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to create scheduled action '{scheduled_action_name}'"
             ) from exc
     else:
         try:
@@ -200,8 +221,8 @@ def scheduled_scaling_manager(
                 ScheduledActionName=scheduled_action_name,
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to delete scheduled action '{scheduled_action_name}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to delete scheduled action '{scheduled_action_name}'"
             ) from exc
 
     logger.info(
@@ -264,18 +285,18 @@ def stack_output_resolver(
                             source="export",
                         )
         except ClientError as exc:
-            raise RuntimeError(f"Failed to list exports: {exc}") from exc
-        raise RuntimeError(f"Export '{export_name}' not found")
+            raise wrap_aws_error(exc, "Failed to list exports") from exc
+        raise AwsServiceError(f"Export '{export_name}' not found")
 
     # stack_name + output_key path
     try:
         resp = cfn.describe_stacks(StackName=stack_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe stack '{stack_name}': {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe stack '{stack_name}'") from exc
 
     stacks = resp.get("Stacks", [])
     if not stacks:
-        raise RuntimeError(f"Stack '{stack_name}' not found")
+        raise AwsServiceError(f"Stack '{stack_name}' not found")
 
     outputs = stacks[0].get("Outputs", [])
     for out in outputs:
@@ -286,7 +307,7 @@ def stack_output_resolver(
                 source="stack_output",
             )
 
-    raise RuntimeError(f"Output '{output_key}' not found in stack '{stack_name}'")
+    raise AwsServiceError(f"Output '{output_key}' not found in stack '{stack_name}'")
 
 
 # ---------------------------------------------------------------------------
@@ -340,8 +361,8 @@ def resource_cleanup_scheduler(
                 FunctionName=lambda_function_name,
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to list Lambda versions for '{lambda_function_name}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to list Lambda versions for '{lambda_function_name}'"
             ) from exc
 
         versions = [v for v in resp.get("Versions", []) if v["Version"] != "$LATEST"]
@@ -374,8 +395,8 @@ def resource_cleanup_scheduler(
                 ExpressionAttributeValues={":now": {"N": str(now)}},
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to scan DynamoDB table '{dynamodb_table_name}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to scan DynamoDB table '{dynamodb_table_name}'"
             ) from exc
 
         for item in resp.get("Items", []):
@@ -398,8 +419,8 @@ def resource_cleanup_scheduler(
         try:
             resp = s3.list_objects_v2(Bucket=s3_bucket, Prefix=s3_prefix)
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to list S3 objects in '{s3_bucket}/{s3_prefix}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to list S3 objects in '{s3_bucket}/{s3_prefix}'"
             ) from exc
 
         for obj in resp.get("Contents", []):
@@ -490,7 +511,7 @@ def multi_region_failover(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create health check: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to create health check") from exc
 
     health_check_id = hc_resp["HealthCheck"]["Id"]
 
@@ -526,7 +547,7 @@ def multi_region_failover(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create failover records: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to create failover records") from exc
 
     logger.info(
         "Multi-region failover configured: %s -> %s / %s",
@@ -600,8 +621,8 @@ def infrastructure_diff_reporter(
             resp = s3.get_object(Bucket=s3_bucket, Key=s3_key_a)
             template_a = json.loads(resp["Body"].read().decode("utf-8"))
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to load template from s3://{s3_bucket}/{s3_key_a}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to load template from s3://{s3_bucket}/{s3_key_a}"
             ) from exc
 
     if template_b is None and s3_key_b is not None:
@@ -612,8 +633,8 @@ def infrastructure_diff_reporter(
             resp = s3.get_object(Bucket=s3_bucket, Key=s3_key_b)
             template_b = json.loads(resp["Body"].read().decode("utf-8"))
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to load template from s3://{s3_bucket}/{s3_key_b}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to load template from s3://{s3_bucket}/{s3_key_b}"
             ) from exc
 
     if template_a is None or template_b is None:
@@ -702,13 +723,13 @@ def lambda_vpc_connector(
     try:
         resp = ec2.describe_subnets(SubnetIds=subnet_ids)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to validate subnets: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to validate subnets") from exc
 
     subnets = resp.get("Subnets", [])
     if len(subnets) != len(subnet_ids):
         found = {s["SubnetId"] for s in subnets}
         missing = set(subnet_ids) - found
-        raise RuntimeError(f"Subnets not found: {sorted(missing)}")
+        raise AwsServiceError(f"Subnets not found: {sorted(missing)}")
 
     vpc_id = subnets[0]["VpcId"]
 
@@ -718,13 +739,13 @@ def lambda_vpc_connector(
             GroupIds=security_group_ids,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to validate security groups: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to validate security groups") from exc
 
     sgs = resp.get("SecurityGroups", [])
     if len(sgs) != len(security_group_ids):
         found = {s["GroupId"] for s in sgs}
         missing = set(security_group_ids) - found
-        raise RuntimeError(f"Security groups not found: {sorted(missing)}")
+        raise AwsServiceError(f"Security groups not found: {sorted(missing)}")
 
     # Apply VPC config to Lambda
     lam = get_client("lambda", region_name=region_name)
@@ -737,7 +758,7 @@ def lambda_vpc_connector(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to configure VPC for '{function_name}': {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to configure VPC for '{function_name}'") from exc
 
     logger.info(
         "Lambda %s configured with VPC %s",
@@ -795,7 +816,7 @@ def api_gateway_stage_manager(
             description=description,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create deployment for '{rest_api_id}': {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create deployment for '{rest_api_id}'") from exc
 
     deployment_id = deploy_resp["id"]
 
@@ -835,11 +856,11 @@ def api_gateway_stage_manager(
                     patchOperations=patch_ops,
                 )
             except ClientError as update_exc:
-                raise RuntimeError(
-                    f"Failed to update stage '{stage_name}': {update_exc}"
+                raise wrap_aws_error(
+                    update_exc, f"Failed to update stage '{stage_name}'"
                 ) from update_exc
         else:
-            raise RuntimeError(f"Failed to create stage '{stage_name}': {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to create stage '{stage_name}'") from exc
 
     # Apply method throttling
     if method_throttling:
@@ -871,7 +892,7 @@ def api_gateway_stage_manager(
                     patchOperations=patch_ops,
                 )
             except ClientError as exc:
-                raise RuntimeError(f"Failed to apply throttling to '{stage_name}': {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to apply throttling to '{stage_name}'") from exc
 
     logger.info(
         "API Gateway stage '%s' managed for API '%s'",

@@ -10,18 +10,19 @@ import asyncio
 import functools
 import json
 import traceback
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.notifier import BroadcastResult, NotificationResult
 
 __all__ = [
-    "NotificationResult",
     "BroadcastResult",
-    "send_alert",
-    "notify_on_exception",
+    "NotificationResult",
     "broadcast",
+    "notify_on_exception",
     "resolve_and_notify",
+    "send_alert",
 ]
 
 
@@ -402,7 +403,7 @@ async def resolve_and_notify(
 
     if resolve_coros:
         results = await asyncio.gather(*resolve_coros)
-        for key, result in zip(resolve_keys, results):
+        for key, result in zip(resolve_keys, results, strict=False):
             if key == "ssm_topic":
                 sns_topic_arn = result["Parameter"]["Value"]
             elif key == "ssm_queue":

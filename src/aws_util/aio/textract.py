@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.textract import TextractBlock, TextractJobResult
 
 _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "PARTIAL_SUCCESS"}
@@ -13,15 +14,15 @@ _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "PARTIAL_SUCCESS"}
 __all__ = [
     "TextractBlock",
     "TextractJobResult",
-    "detect_document_text",
     "analyze_document",
-    "start_document_text_detection",
-    "get_document_text_detection",
-    "wait_for_document_text_detection",
-    "extract_text",
-    "extract_tables",
-    "extract_form_fields",
+    "detect_document_text",
     "extract_all",
+    "extract_form_fields",
+    "extract_tables",
+    "extract_text",
+    "get_document_text_detection",
+    "start_document_text_detection",
+    "wait_for_document_text_detection",
 ]
 
 
@@ -93,8 +94,8 @@ async def detect_document_text(
     document = _resolve_document(document_bytes, s3_bucket, s3_key)
     try:
         resp = await client.call("DetectDocumentText", Document=document)
-    except RuntimeError as exc:
-        raise RuntimeError(f"detect_document_text failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "detect_document_text failed") from exc
     return _parse_blocks(resp.get("Blocks", []))
 
 
@@ -131,8 +132,8 @@ async def analyze_document(
             Document=document,
             FeatureTypes=feature_types or ["TABLES", "FORMS"],
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"analyze_document failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "analyze_document failed") from exc
     return _parse_blocks(resp.get("Blocks", []))
 
 
@@ -168,9 +169,9 @@ async def start_document_text_detection(
             kwargs["OutputConfig"]["S3Prefix"] = output_prefix
     try:
         resp = await client.call("StartDocumentTextDetection", **kwargs)
-    except RuntimeError as exc:
-        raise RuntimeError(
-            f"start_document_text_detection failed for s3://{s3_bucket}/{s3_key}: {exc}"
+    except Exception as exc:
+        raise wrap_aws_error(
+            exc, f"start_document_text_detection failed for s3://{s3_bucket}/{s3_key}"
         ) from exc
     return resp["JobId"]
 
@@ -208,8 +209,8 @@ async def get_document_text_detection(
             if not next_token:
                 break
             kwargs["NextToken"] = next_token
-    except RuntimeError as exc:
-        raise RuntimeError(f"get_document_text_detection failed for job {job_id!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"get_document_text_detection failed for job {job_id!r}") from exc
     return TextractJobResult(
         job_id=job_id,
         status=status,

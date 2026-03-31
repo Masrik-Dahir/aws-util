@@ -25,23 +25,24 @@ from aws_util.api_gateway import (
     _build_auth_response,
     _decode_jwt_payload,
 )
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "AuthPolicy",
     "APIKeyRecord",
+    "AuthPolicy",
     "ThrottleResult",
-    "WebSocketConnection",
     "ValidationResult",
-    "jwt_authorizer",
+    "WebSocketConnection",
     "api_key_authorizer",
+    "jwt_authorizer",
     "request_validator",
     "throttle_guard",
+    "websocket_broadcast",
     "websocket_connect",
     "websocket_disconnect",
     "websocket_list_connections",
-    "websocket_broadcast",
 ]
 
 
@@ -354,11 +355,9 @@ async def websocket_connect(
             TableName=table_name,
             Item=item,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to store WebSocket connection {connection_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to store WebSocket connection {connection_id!r}"
         ) from exc
 
 
@@ -384,11 +383,9 @@ async def websocket_disconnect(
             TableName=table_name,
             Key={"connection_id": {"S": connection_id}},
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to remove WebSocket connection {connection_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to remove WebSocket connection {connection_id!r}"
         ) from exc
 
 
@@ -434,11 +431,9 @@ async def websocket_list_connections(
                     metadata=meta,
                 )
             )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to list WebSocket connections from {table_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to list WebSocket connections from {table_name!r}"
         ) from exc
 
     return connections

@@ -7,10 +7,12 @@ EC2, and CloudFormation for common async security automation workflows.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.security_ops import (
     AlarmProvisionResult,
     CognitoUserResult,
@@ -20,19 +22,19 @@ from aws_util.security_ops import (
 )
 
 __all__ = [
-    "PublicBucketAuditResult",
-    "IAMKeyRotationResult",
     "AlarmProvisionResult",
     "CognitoUserResult",
+    "IAMKeyRotationResult",
+    "PublicBucketAuditResult",
     "TemplateValidationResult",
     "audit_public_s3_buckets",
-    "rotate_iam_access_key",
-    "kms_encrypt_to_secret",
-    "iam_roles_report_to_s3",
-    "enforce_bucket_versioning",
     "cognito_bulk_create_users",
-    "sync_secret_to_ssm",
     "create_cloudwatch_alarm_with_sns",
+    "enforce_bucket_versioning",
+    "iam_roles_report_to_s3",
+    "kms_encrypt_to_secret",
+    "rotate_iam_access_key",
+    "sync_secret_to_ssm",
     "tag_ec2_instances_from_ssm",
     "validate_and_store_cfn_template",
 ]
@@ -63,10 +65,8 @@ async def audit_public_s3_buckets(
     try:
         resp = await s3.call("ListBuckets")
         buckets = [b["Name"] for b in resp.get("Buckets", [])]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"audit_public_s3_buckets list_buckets failed: {exc}") from exc
+        raise wrap_aws_error(exc, "audit_public_s3_buckets list_buckets failed") from exc
 
     public: list[str] = []
     for bucket in buckets:
@@ -142,10 +142,8 @@ async def rotate_iam_access_key(
             UserName=username,
         )
         new_key = resp["AccessKey"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"rotate_iam_access_key create failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"rotate_iam_access_key create failed for {username!r}") from exc
 
     secret_value = json.dumps(
         {
@@ -170,10 +168,8 @@ async def rotate_iam_access_key(
                 )
             else:
                 raise
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"rotate_iam_access_key secret store failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rotate_iam_access_key secret store failed") from exc
 
     old_key_deactivated = False
     try:
@@ -195,10 +191,8 @@ async def rotate_iam_access_key(
                 Status="Inactive",
             )
             old_key_deactivated = True
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"rotate_iam_access_key deactivate failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rotate_iam_access_key deactivate failed") from exc
 
     return IAMKeyRotationResult(
         username=username,
@@ -243,10 +237,8 @@ async def kms_encrypt_to_secret(
             Plaintext=plaintext.encode(),
         )
         ciphertext_b64 = base64.b64encode(resp["CiphertextBlob"]).decode()
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"kms_encrypt_to_secret encryption failed: {exc}") from exc
+        raise wrap_aws_error(exc, "kms_encrypt_to_secret encryption failed") from exc
 
     payload = json.dumps(
         {
@@ -272,10 +264,8 @@ async def kms_encrypt_to_secret(
                 )
                 return resp["ARN"]
             raise
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"kms_encrypt_to_secret secret store failed: {exc}") from exc
+        raise wrap_aws_error(exc, "kms_encrypt_to_secret secret store failed") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -332,10 +322,8 @@ async def iam_roles_report_to_s3(
                     "last_used_region": last_used.get("Region", ""),
                 }
             )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"iam_roles_report_to_s3 list failed: {exc}") from exc
+        raise wrap_aws_error(exc, "iam_roles_report_to_s3 list failed") from exc
 
     report = json.dumps(
         {"roles": roles, "count": len(roles)},
@@ -348,10 +336,8 @@ async def iam_roles_report_to_s3(
             Key=s3_key,
             Body=report.encode(),
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"iam_roles_report_to_s3 upload failed: {exc}") from exc
+        raise wrap_aws_error(exc, "iam_roles_report_to_s3 upload failed") from exc
 
     return s3_key
 
@@ -396,22 +382,18 @@ async def enforce_bucket_versioning(
                     VersioningConfiguration={"Status": "Enabled"},
                 )
                 updated.append(bucket)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"enforce_bucket_versioning failed for {bucket!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"enforce_bucket_versioning failed for {bucket!r}") from exc
 
     if updated and sns_topic_arn:
         sns = async_client("sns", region_name)
-        try:
+        with contextlib.suppress(Exception):
             await sns.call(
                 "Publish",
                 TopicArn=sns_topic_arn,
                 Subject="S3 Versioning Enabled",
                 Message=(f"Versioning enabled on {len(updated)} bucket(s):\n" + "\n".join(updated)),
             )
-        except Exception:
-            pass
 
     return updated
 
@@ -458,10 +440,8 @@ async def cognito_bulk_create_users(
                 MessageAction="SUPPRESS",
             )
             status = resp["User"]["UserStatus"]
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"cognito_bulk_create_users failed for {username!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"cognito_bulk_create_users failed for {username!r}") from exc
 
         email_sent = False
         if from_email:
@@ -532,10 +512,8 @@ async def sync_secret_to_ssm(
             SecretId=secret_id,
         )
         raw = resp.get("SecretString", "{}")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"sync_secret_to_ssm get_secret failed: {exc}") from exc
+        raise wrap_aws_error(exc, "sync_secret_to_ssm get_secret failed") from exc
 
     try:
         data: dict[str, str] = json.loads(raw)
@@ -557,11 +535,9 @@ async def sync_secret_to_ssm(
         try:
             await ssm.call("PutParameter", **kwargs)
             written[key] = param_name
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"sync_secret_to_ssm put_parameter failed for {param_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"sync_secret_to_ssm put_parameter failed for {param_name!r}"
             ) from exc
 
     return written
@@ -613,10 +589,8 @@ async def create_cloudwatch_alarm_with_sns(
             Name=topic_name,
         )
         topic_arn = topic_resp["TopicArn"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"create_cloudwatch_alarm_with_sns topic failed: {exc}") from exc
+        raise wrap_aws_error(exc, "create_cloudwatch_alarm_with_sns topic failed") from exc
 
     try:
         await cw.call(
@@ -633,10 +607,8 @@ async def create_cloudwatch_alarm_with_sns(
             OKActions=[topic_arn],
             TreatMissingData="notBreaching",
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"create_cloudwatch_alarm_with_sns alarm failed: {exc}") from exc
+        raise wrap_aws_error(exc, "create_cloudwatch_alarm_with_sns alarm failed") from exc
 
     return AlarmProvisionResult(
         alarm_name=alarm_name,
@@ -678,10 +650,8 @@ async def tag_ec2_instances_from_ssm(
             WithDecryption=True,
         )
         raw = resp["Parameter"]["Value"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"tag_ec2_instances_from_ssm SSM fetch failed: {exc}") from exc
+        raise wrap_aws_error(exc, "tag_ec2_instances_from_ssm SSM fetch failed") from exc
 
     try:
         tag_map: dict[str, str] = json.loads(raw)
@@ -700,11 +670,9 @@ async def tag_ec2_instances_from_ssm(
                 Tags=tags,
             )
             result[iid] = list(tag_map.keys())
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"tag_ec2_instances_from_ssm tagging failed for {iid!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"tag_ec2_instances_from_ssm tagging failed for {iid!r}"
             ) from exc
 
     return result
@@ -748,10 +716,8 @@ async def validate_and_store_cfn_template(
             Key=s3_key,
             Body=template_body.encode(),
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"validate_and_store_cfn_template upload failed: {exc}") from exc
+        raise wrap_aws_error(exc, "validate_and_store_cfn_template upload failed") from exc
 
     try:
         resp = await cfn.call(
@@ -760,10 +726,8 @@ async def validate_and_store_cfn_template(
         )
         parameters = [p["ParameterKey"] for p in resp.get("Parameters", [])]
         capabilities = resp.get("Capabilities", [])
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"validate_and_store_cfn_template validation failed: {exc}") from exc
+        raise wrap_aws_error(exc, "validate_and_store_cfn_template validation failed") from exc
 
     return TemplateValidationResult(
         s3_key=s3_key,

@@ -14,6 +14,22 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "ECSDeployResult",
+    "LambdaDeployResult",
+    "deploy_ecs_from_ecr",
+    "deploy_ecs_image",
+    "deploy_lambda_with_config",
+    "get_latest_ecr_image_uri",
+    "publish_lambda_version",
+    "update_lambda_alias",
+    "update_lambda_code_from_s3",
+    "update_lambda_code_from_zip",
+    "update_lambda_environment",
+    "wait_for_lambda_update",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -80,8 +96,8 @@ def update_lambda_code_from_s3(
             Publish=publish,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to update Lambda {function_name!r} from s3://{bucket}/{key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to update Lambda {function_name!r} from s3://{bucket}/{key}"
         ) from exc
     return LambdaDeployResult(
         function_name=resp["FunctionName"],
@@ -121,8 +137,8 @@ def update_lambda_code_from_zip(
             Publish=publish,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to update Lambda {function_name!r} from {zip_path!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to update Lambda {function_name!r} from {zip_path!r}"
         ) from exc
     return LambdaDeployResult(
         function_name=resp["FunctionName"],
@@ -157,8 +173,8 @@ def update_lambda_environment(
             cfg = client.get_function_configuration(FunctionName=function_name)
             existing = cfg.get("Environment", {}).get("Variables", {})
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to read Lambda config for {function_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to read Lambda config for {function_name!r}"
             ) from exc
         existing.update(env_vars)
         env_vars = existing
@@ -168,8 +184,8 @@ def update_lambda_environment(
             Environment={"Variables": env_vars},
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to update Lambda environment for {function_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to update Lambda environment for {function_name!r}"
         ) from exc
 
 
@@ -198,8 +214,8 @@ def publish_lambda_version(
             Description=description,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to publish Lambda version for {function_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to publish Lambda version for {function_name!r}"
         ) from exc
     return resp["Version"]
 
@@ -239,8 +255,8 @@ def update_lambda_alias(
         )
     except ClientError as exc:
         if exc.response["Error"]["Code"] != "ResourceNotFoundException":
-            raise RuntimeError(
-                f"Failed to update alias {alias_name!r} on {function_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to update alias {alias_name!r} on {function_name!r}"
             ) from exc
         try:
             resp = client.create_alias(
@@ -250,8 +266,8 @@ def update_lambda_alias(
                 Description=description,
             )
         except ClientError as create_exc:
-            raise RuntimeError(
-                f"Failed to create alias {alias_name!r} on {function_name!r}: {create_exc}"
+            raise wrap_aws_error(
+                create_exc, f"Failed to create alias {alias_name!r} on {function_name!r}"
             ) from create_exc
     return resp["AliasArn"]
 
@@ -284,15 +300,15 @@ def wait_for_lambda_update(
         try:
             resp = client.get_function_configuration(FunctionName=function_name)
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to poll Lambda update status for {function_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to poll Lambda update status for {function_name!r}"
             ) from exc
         status = resp.get("LastUpdateStatus", "Successful")
         if status == "Successful":
             return
         if status == "Failed":
             reason = resp.get("LastUpdateStatusReasonCode", "")
-            raise RuntimeError(f"Lambda update failed for {function_name!r}: {reason}")
+            raise AwsServiceError(f"Lambda update failed for {function_name!r}: {reason}")
         if time.monotonic() >= deadline:
             raise TimeoutError(f"Lambda {function_name!r} update did not finish within {timeout}s")
         time.sleep(poll_interval)
@@ -451,18 +467,18 @@ def deploy_ecs_image(
     try:
         svc_resp = client.describe_services(cluster=cluster, services=[service])
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe ECS service {service!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe ECS service {service!r}") from exc
 
     services = svc_resp.get("services", [])
     if not services:
-        raise RuntimeError(f"ECS service {service!r} not found in cluster {cluster!r}")
+        raise AwsServiceError(f"ECS service {service!r} not found in cluster {cluster!r}")
     svc = services[0]
     task_def_arn: str = svc["taskDefinition"]
 
     try:
         td_resp = client.describe_task_definition(taskDefinition=task_def_arn)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe task definition {task_def_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe task definition {task_def_arn!r}") from exc
 
     td = td_resp["taskDefinition"]
     containers: list[dict[str, Any]] = td["containerDefinitions"]
@@ -475,7 +491,7 @@ def deploy_ecs_image(
                 matched = True
                 break
         if not matched:
-            raise RuntimeError(
+            raise AwsServiceError(
                 f"Container {container_name!r} not found in task definition {task_def_arn!r}"
             )
     else:
@@ -508,7 +524,7 @@ def deploy_ecs_image(
     try:
         reg_resp = client.register_task_definition(**register_kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to register new task definition: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to register new task definition") from exc
 
     new_td_arn: str = reg_resp["taskDefinition"]["taskDefinitionArn"]
 
@@ -520,7 +536,7 @@ def deploy_ecs_image(
             forceNewDeployment=True,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to update ECS service {service!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update ECS service {service!r}") from exc
 
     deployments = update_resp.get("service", {}).get("deployments", [])
     deployment_id = deployments[0].get("id") if deployments else None
@@ -576,7 +592,7 @@ def get_latest_ecr_image_uri(
     repos = list_repositories(region_name=region_name)
     matched = [r for r in repos if r.repository_name == repository_name]
     if not matched:
-        raise RuntimeError(f"ECR repository {repository_name!r} not found")
+        raise AwsServiceError(f"ECR repository {repository_name!r} not found")
     repo_uri = matched[0].repository_uri
 
     resolved_tag = tag or get_latest_image_tag(repository_name, region_name=region_name)

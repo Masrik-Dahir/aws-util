@@ -7,6 +7,25 @@ from boto3.dynamodb.conditions import ConditionBase
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
+from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "DynamoKey",
+    "atomic_increment",
+    "batch_get",
+    "batch_write",
+    "delete_item",
+    "get_item",
+    "put_if_not_exists",
+    "put_item",
+    "query",
+    "scan",
+    "transact_get",
+    "transact_write",
+    "update_item",
+]
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -38,7 +57,7 @@ class DynamoKey(BaseModel):
 def _table_resource(table_name: str, region_name: str | None = None):
     """Return a boto3 DynamoDB Table resource (not a low-level client)."""
     kwargs: dict[str, str] = {}
-    if region_name:
+    if region_name is not None:
         kwargs["region_name"] = region_name
     dynamodb = boto3.resource("dynamodb", **kwargs)  # type: ignore[call-overload]
     return dynamodb.Table(table_name)
@@ -75,7 +94,7 @@ def get_item(
     try:
         resp = table.get_item(Key=raw_key, ConsistentRead=consistent_read)
     except ClientError as exc:
-        raise RuntimeError(f"get_item failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_item failed on {table_name!r}") from exc
     return resp.get("Item")
 
 
@@ -104,7 +123,7 @@ def put_item(
     try:
         table.put_item(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"put_item failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"put_item failed on {table_name!r}") from exc
 
 
 def update_item(
@@ -116,11 +135,13 @@ def update_item(
     """Update specific attributes of an existing item.
 
     Builds a ``SET`` expression automatically from the *updates* dict.
+    All attribute names are aliased (e.g. ``#attr_0``, ``#attr_1``, ...)
+    which handles DynamoDB reserved words automatically.
 
     Args:
         table_name: DynamoDB table name.
         key: Primary key of the item to update.
-        updates: Mapping of attribute name → new value.
+        updates: Mapping of attribute name -> new value.
         region_name: AWS region override.
 
     Returns:
@@ -146,7 +167,7 @@ def update_item(
             ReturnValues="ALL_NEW",
         )
     except ClientError as exc:
-        raise RuntimeError(f"update_item failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"update_item failed on {table_name!r}") from exc
     return resp.get("Attributes", {})
 
 
@@ -175,7 +196,7 @@ def delete_item(
     try:
         table.delete_item(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"delete_item failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"delete_item failed on {table_name!r}") from exc
 
 
 def query(
@@ -232,7 +253,7 @@ def query(
                 break
             kwargs["ExclusiveStartKey"] = last_key
     except ClientError as exc:
-        raise RuntimeError(f"query failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"query failed on {table_name!r}") from exc
     return items
 
 
@@ -280,7 +301,7 @@ def scan(
                 break
             kwargs["ExclusiveStartKey"] = last_key
     except ClientError as exc:
-        raise RuntimeError(f"scan failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"scan failed on {table_name!r}") from exc
     return items
 
 
@@ -309,7 +330,7 @@ def batch_get(
         raise ValueError("batch_get supports at most 100 keys per call")
 
     kwargs: dict[str, str] = {}
-    if region_name:
+    if region_name is not None:
         kwargs["region_name"] = region_name
     dynamodb = boto3.resource("dynamodb", **kwargs)  # type: ignore[call-overload]
 
@@ -323,7 +344,7 @@ def batch_get(
             items.extend(resp.get("Responses", {}).get(table_name, []))
             request = resp.get("UnprocessedKeys", {})
     except ClientError as exc:
-        raise RuntimeError(f"batch_get failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"batch_get failed on {table_name!r}") from exc
     return items
 
 
@@ -342,18 +363,14 @@ def batch_write(
     Raises:
         RuntimeError: If the batch write fails.
     """
-    kwargs: dict[str, str] = {}
-    if region_name:
-        kwargs["region_name"] = region_name
-    dynamodb = boto3.resource("dynamodb", **kwargs)  # type: ignore[call-overload]
-    table = dynamodb.Table(table_name)
+    table = _table_resource(table_name, region_name)
 
     try:
         with table.batch_writer() as batch:
             for item in items:
                 batch.put_item(Item=item)
     except ClientError as exc:
-        raise RuntimeError(f"batch_write failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"batch_write failed on {table_name!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -385,14 +402,11 @@ def transact_write(
     if len(operations) > 100:
         raise ValueError("transact_write supports at most 100 operations")
 
-    kwargs: dict[str, str] = {}
-    if region_name:
-        kwargs["region_name"] = region_name
-    dynamodb = boto3.resource("dynamodb", **kwargs)  # type: ignore[call-overload]
+    client = get_client("dynamodb", region_name)
     try:
-        dynamodb.meta.client.transact_write_items(TransactItems=operations)
+        client.transact_write_items(TransactItems=operations)
     except ClientError as exc:
-        raise RuntimeError(f"transact_write failed: {exc}") from exc
+        raise wrap_aws_error(exc, "transact_write failed") from exc
 
 
 def transact_get(
@@ -403,6 +417,11 @@ def transact_get(
 
     Each entry is a dict with ``"TableName"`` and ``"Key"`` keys, matching
     the boto3 ``TransactGetItems`` format.
+
+    .. note::
+
+        Uses the low-level client API.  Number types are returned as
+        ``Decimal`` which may differ from resource-layer deserialisation.
 
     Args:
         items: List of up to 100 ``{"Get": {"TableName": "...", "Key": {...}}}``
@@ -420,17 +439,14 @@ def transact_get(
     if len(items) > 100:
         raise ValueError("transact_get supports at most 100 items")
 
-    kwargs: dict[str, str] = {}
-    if region_name:
-        kwargs["region_name"] = region_name
-    client = boto3.client("dynamodb", **kwargs)  # type: ignore[call-overload]
+    client = get_client("dynamodb", region_name)
 
     # Wrap plain dicts if caller used {TableName, Key} shorthand
     wrapped = [item if "Get" in item else {"Get": item} for item in items]
     try:
         resp = client.transact_get_items(TransactItems=wrapped)
     except ClientError as exc:
-        raise RuntimeError(f"transact_get failed: {exc}") from exc
+        raise wrap_aws_error(exc, "transact_get failed") from exc
 
     from boto3.dynamodb.types import TypeDeserializer
 
@@ -480,7 +496,7 @@ def atomic_increment(
             ReturnValues="UPDATED_NEW",
         )
     except ClientError as exc:
-        raise RuntimeError(f"atomic_increment failed on {table_name!r}.{attribute}: {exc}") from exc
+        raise wrap_aws_error(exc, f"atomic_increment failed on {table_name!r}.{attribute}") from exc
     return int(resp["Attributes"][attribute])
 
 
@@ -520,4 +536,4 @@ def put_if_not_exists(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
             return False
-        raise RuntimeError(f"put_if_not_exists failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"put_if_not_exists failed on {table_name!r}") from exc

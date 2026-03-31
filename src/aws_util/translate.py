@@ -4,6 +4,15 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "TranslateLanguage",
+    "TranslateResult",
+    "list_languages",
+    "translate_batch",
+    "translate_text",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -70,7 +79,7 @@ def translate_text(
     try:
         resp = client.translate_text(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to translate text to {target_language_code!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to translate text to {target_language_code!r}") from exc
     return TranslateResult(
         translated_text=resp["TranslatedText"],
         source_language_code=resp["SourceLanguageCode"],
@@ -166,5 +175,5 @@ def list_languages(
                 break
             kwargs["NextToken"] = next_token
     except ClientError as exc:
-        raise RuntimeError(f"list_languages failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_languages failed") from exc
     return languages

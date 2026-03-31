@@ -6,13 +6,14 @@ monitoring, and task placement failure alarming.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
 
 # ---------------------------------------------------------------------------
 # Models
@@ -58,7 +59,7 @@ def _get_spot_interruption_rate(
     available.
     """
     cw = get_client("cloudwatch", region_name)
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(hours=period_hours)
     try:
         resp = cw.get_metric_statistics(
@@ -110,7 +111,7 @@ def _get_placement_success_rate(
     Returns 1.0 when no failure data is found (assumed healthy).
     """
     cw = get_client("cloudwatch", region_name)
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(hours=period_hours)
 
     failure_count = 0.0
@@ -228,8 +229,9 @@ def _create_placement_failure_alarm(
     try:
         cw.put_metric_alarm(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create placement failure alarm for cluster {cluster_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"Failed to create placement failure alarm for cluster {cluster_name!r}",
         ) from exc
 
     # Retrieve the alarm ARN.
@@ -331,8 +333,9 @@ def ecs_capacity_provider_optimizer(
                 defaultCapacityProviderStrategy=strategy_entries,
             )
         except ClientError as exc:
-            raise RuntimeError(
-                f"Failed to update capacity provider strategy for cluster {cluster_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"Failed to update capacity provider strategy for cluster {cluster_name!r}",
             ) from exc
 
         # ------------------------------------------------------------------
@@ -361,16 +364,15 @@ def ecs_capacity_provider_optimizer(
             recommendations=recommendations,
         )
 
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"ecs_capacity_provider_optimizer failed for cluster {cluster_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"ecs_capacity_provider_optimizer failed for cluster {cluster_name!r}",
         ) from exc
 
 
 __all__ = [
-    "CapacityProviderStrategy",
     "CapacityProviderResult",
+    "CapacityProviderStrategy",
     "ecs_capacity_provider_optimizer",
 ]

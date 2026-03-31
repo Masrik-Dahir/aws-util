@@ -23,8 +23,35 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "EventBridgeRuleResult",
+    "EventReplayResult",
+    "EventSourceMappingResult",
+    "FanOutResult",
+    "PipeResult",
+    "SagaResult",
+    "SagaStepResult",
+    "ScheduleResult",
+    "WorkflowResult",
+    "create_eventbridge_rule",
+    "create_pipe",
+    "create_schedule",
+    "create_sqs_event_source_mapping",
+    "delete_event_source_mapping",
+    "delete_eventbridge_rule",
+    "delete_pipe",
+    "delete_schedule",
+    "describe_event_replay",
+    "fan_out_fan_in",
+    "put_eventbridge_targets",
+    "run_workflow",
+    "saga_orchestrator",
+    "start_event_replay",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -179,7 +206,7 @@ def create_eventbridge_rule(
     try:
         resp = client.put_rule(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create EventBridge rule {rule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create EventBridge rule {rule_name!r}") from exc
 
     return EventBridgeRuleResult(
         rule_name=rule_name,
@@ -218,12 +245,12 @@ def put_eventbridge_targets(
             Targets=targets,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to put targets on rule {rule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to put targets on rule {rule_name!r}") from exc
 
     failed = resp.get("FailedEntryCount", 0)
     if failed > 0:
         entries = resp.get("FailedEntries", [])
-        raise RuntimeError(f"Failed to add {failed} target(s) to {rule_name!r}: {entries}")
+        raise AwsServiceError(f"Failed to add {failed} target(s) to {rule_name!r}: {entries}")
 
     return len(targets)
 
@@ -268,7 +295,7 @@ def delete_eventbridge_rule(
     try:
         client.delete_rule(Name=rule_name, EventBusName=event_bus_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete EventBridge rule {rule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete EventBridge rule {rule_name!r}") from exc
 
     return EventBridgeRuleResult(rule_name=rule_name, action="deleted")
 
@@ -332,7 +359,7 @@ def create_schedule(
             State=state,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create schedule {schedule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create schedule {schedule_name!r}") from exc
 
     return ScheduleResult(
         schedule_name=schedule_name,
@@ -357,7 +384,7 @@ def delete_schedule(
     try:
         client.delete_schedule(Name=schedule_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete schedule {schedule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete schedule {schedule_name!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +429,7 @@ def run_workflow(
     try:
         resp = client.start_execution(**start_kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to start execution for {state_machine_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start execution for {state_machine_arn!r}") from exc
 
     execution_arn = resp["executionArn"]
     deadline = time.monotonic() + timeout
@@ -411,7 +438,7 @@ def run_workflow(
         try:
             desc = client.describe_execution(executionArn=execution_arn)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to describe execution {execution_arn!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to describe execution {execution_arn!r}") from exc
 
         status = desc["status"]
         if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
@@ -476,7 +503,7 @@ def saga_orchestrator(
             func_error = resp.get("FunctionError")
 
             if func_error:
-                raise RuntimeError(f"Function error: {resp_payload.decode()}")
+                raise AwsServiceError(f"Function error: {resp_payload.decode()}")
 
             try:
                 output = json.loads(resp_payload) if resp_payload else None
@@ -569,7 +596,7 @@ def fan_out_fan_in(
             if resp.get("Failed"):
                 logger.warning("Some messages failed in batch: %s", resp["Failed"])
         except ClientError as exc:
-            raise RuntimeError(f"Fan-out send failed: {exc}") from exc
+            raise wrap_aws_error(exc, "Fan-out send failed") from exc
 
     if result_table:
         ddb = get_client("dynamodb", region_name)
@@ -627,7 +654,7 @@ def start_event_replay(
             EventEndTime=end_time,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to start replay {replay_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start replay {replay_name!r}") from exc
 
     return EventReplayResult(
         replay_name=replay_name,
@@ -656,7 +683,7 @@ def describe_event_replay(
     try:
         resp = client.describe_replay(ReplayName=replay_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe replay {replay_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe replay {replay_name!r}") from exc
 
     return EventReplayResult(
         replay_name=replay_name,
@@ -722,7 +749,7 @@ def create_pipe(
     try:
         resp = client.create_pipe(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create pipe {pipe_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create pipe {pipe_name!r}") from exc
 
     return PipeResult(
         pipe_name=pipe_name,
@@ -748,7 +775,7 @@ def delete_pipe(
     try:
         client.delete_pipe(Name=pipe_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete pipe {pipe_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete pipe {pipe_name!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -797,8 +824,8 @@ def create_sqs_event_source_mapping(
     try:
         resp = client.create_event_source_mapping(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to create event source mapping for {function_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to create event source mapping for {function_name!r}"
         ) from exc
 
     return EventSourceMappingResult(
@@ -827,4 +854,4 @@ def delete_event_source_mapping(
     try:
         client.delete_event_source_mapping(UUID=uuid)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete event source mapping {uuid!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete event source mapping {uuid!r}") from exc

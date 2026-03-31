@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Any
@@ -8,6 +12,32 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "PresignedUrl",
+    "S3Object",
+    "batch_copy",
+    "copy_object",
+    "delete_object",
+    "delete_prefix",
+    "download_as_text",
+    "download_bytes",
+    "download_file",
+    "generate_presigned_post",
+    "get_object_metadata",
+    "list_objects",
+    "move_object",
+    "multipart_upload",
+    "object_exists",
+    "presigned_url",
+    "read_json",
+    "read_jsonl",
+    "sync_folder",
+    "upload_bytes",
+    "upload_file",
+    "write_json",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -63,18 +93,20 @@ def upload_file(
         RuntimeError: If the upload fails.
     """
     client = get_client("s3", region_name)
-    extra: dict = {}
+    extra: dict[str, str] | None = None
     if content_type:
-        extra["ContentType"] = content_type
+        extra = {"ContentType": content_type}
     try:
-        client.upload_file(
-            Filename=str(file_path),
-            Bucket=bucket,
-            Key=key,
-            ExtraArgs=extra or None,
-        )
+        kwargs: dict[str, Any] = {
+            "Filename": str(file_path),
+            "Bucket": bucket,
+            "Key": key,
+        }
+        if extra is not None:
+            kwargs["ExtraArgs"] = extra
+        client.upload_file(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to upload {file_path!r} to s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to upload {file_path!r} to s3://{bucket}/{key}") from exc
 
 
 def upload_bytes(
@@ -103,7 +135,7 @@ def upload_bytes(
     try:
         client.put_object(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to upload bytes to s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to upload bytes to s3://{bucket}/{key}") from exc
 
 
 def download_file(
@@ -127,8 +159,8 @@ def download_file(
     try:
         client.download_file(Bucket=bucket, Key=key, Filename=str(dest_path))
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to download s3://{bucket}/{key} to {dest_path!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to download s3://{bucket}/{key} to {dest_path!r}"
         ) from exc
 
 
@@ -155,7 +187,7 @@ def download_bytes(
         resp = client.get_object(Bucket=bucket, Key=key)
         return resp["Body"].read()
     except ClientError as exc:
-        raise RuntimeError(f"Failed to download s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to download s3://{bucket}/{key}") from exc
 
 
 def list_objects(
@@ -194,7 +226,7 @@ def list_objects(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to list objects in s3://{bucket}/{prefix}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to list objects in s3://{bucket}/{prefix}") from exc
     return objects
 
 
@@ -226,7 +258,7 @@ def object_exists(
     except ClientError as exc:
         if exc.response["Error"]["Code"] in ("404", "NoSuchKey"):
             return False
-        raise RuntimeError(f"Failed to check existence of s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to check existence of s3://{bucket}/{key}") from exc
 
 
 def delete_object(
@@ -248,7 +280,7 @@ def delete_object(
     try:
         client.delete_object(Bucket=bucket, Key=key)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete s3://{bucket}/{key}") from exc
 
 
 def copy_object(
@@ -278,8 +310,8 @@ def copy_object(
             Key=dst_key,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to copy s3://{src_bucket}/{src_key} → s3://{dst_bucket}/{dst_key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to copy s3://{src_bucket}/{src_key} → s3://{dst_bucket}/{dst_key}"
         ) from exc
 
 
@@ -315,8 +347,8 @@ def presigned_url(
             ExpiresIn=expires_in,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to generate pre-signed URL for s3://{bucket}/{key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to generate pre-signed URL for s3://{bucket}/{key}"
         ) from exc
     return PresignedUrl(url=url, bucket=bucket, key=key, expires_in=expires_in)
 
@@ -345,8 +377,6 @@ def read_json(
         RuntimeError: If the download fails.
         ValueError: If the object is not valid JSON.
     """
-    import json
-
     raw = download_bytes(bucket, key, region_name=region_name)
     try:
         return json.loads(raw)
@@ -373,8 +403,6 @@ def write_json(
     Raises:
         RuntimeError: If the upload fails.
     """
-    import json
-
     payload = json.dumps(data, indent=indent).encode("utf-8")
     upload_bytes(bucket, key, payload, content_type="application/json", region_name=region_name)
 
@@ -383,7 +411,7 @@ def read_jsonl(
     bucket: str,
     key: str,
     region_name: str | None = None,
-):
+) -> Iterator[Any]:
     """Stream a newline-delimited JSON (JSONL) file from S3 line by line.
 
     Uses a generator so the entire file is never held in memory at once.
@@ -400,8 +428,6 @@ def read_jsonl(
         RuntimeError: If the download fails.
         ValueError: If a line is not valid JSON.
     """
-    import json
-
     raw = download_bytes(bucket, key, region_name=region_name)
     for i, line in enumerate(raw.splitlines(), start=1):
         line = line.strip()
@@ -425,6 +451,11 @@ def sync_folder(
     Compares local file ETag (MD5) against the S3 object ETag and only
     uploads files that are new or modified.
 
+    .. note::
+        S3 multipart-uploaded objects have composite ETags in the format
+        ``hash-partcount`` (e.g. ``"abc123-3"``).  These cannot be compared
+        to a local MD5, so files with composite ETags are always re-uploaded.
+
     Args:
         local_path: Root of the local directory to sync.
         bucket: Destination S3 bucket.
@@ -439,8 +470,6 @@ def sync_folder(
     Raises:
         RuntimeError: If any upload or delete fails.
     """
-    import hashlib
-
     local_root = Path(local_path)
     if not local_root.is_dir():
         raise ValueError(f"{local_path!r} is not a directory")
@@ -461,11 +490,15 @@ def sync_folder(
         s3_key = f"{prefix.rstrip('/')}/{rel}".lstrip("/") if prefix else rel
         local_keys.add(s3_key)
 
-        # Compute local MD5
-        md5 = hashlib.md5(file_path.read_bytes()).hexdigest()
-        if existing.get(s3_key) == md5:
-            counts["skipped"] += 1
-            continue
+        remote_etag = existing.get(s3_key, "")
+        # Multipart ETags contain a '-' and cannot be compared to local MD5
+        is_multipart = "-" in remote_etag
+
+        if not is_multipart and remote_etag:
+            md5 = hashlib.md5(file_path.read_bytes()).hexdigest()
+            if remote_etag == md5:
+                counts["skipped"] += 1
+                continue
 
         upload_file(bucket, s3_key, file_path, region_name=region_name)
         counts["uploaded"] += 1
@@ -488,8 +521,9 @@ def multipart_upload(
 ) -> None:
     """Upload a large file to S3 using multipart upload.
 
-    Splits the file into *part_size_mb* chunks and uploads them in sequence.
-    The multipart upload is aborted automatically if any part fails.
+    Splits the file into *part_size_mb* chunks and uploads them in parallel
+    using a thread pool (default 10 threads).  The multipart upload is
+    aborted automatically if any part fails.
 
     Prefer this over :func:`upload_file` for files > 100 MB.
 
@@ -514,21 +548,37 @@ def multipart_upload(
 
     mpu = client.create_multipart_upload(Bucket=bucket, Key=key)
     upload_id = mpu["UploadId"]
-    parts: list[dict] = []
+
+    def _upload_part(part_number: int, data: bytes) -> dict[str, Any]:
+        resp = client.upload_part(
+            Bucket=bucket,
+            Key=key,
+            UploadId=upload_id,
+            PartNumber=part_number,
+            Body=data,
+        )
+        return {"PartNumber": part_number, "ETag": resp["ETag"]}
 
     try:
+        # Read chunks and dispatch uploads in parallel
+        chunks: list[tuple[int, bytes]] = []
         with open(file_path, "rb") as fh:
             part_number = 1
-            while chunk := fh.read(part_size):
-                resp = client.upload_part(
-                    Bucket=bucket,
-                    Key=key,
-                    UploadId=upload_id,
-                    PartNumber=part_number,
-                    Body=chunk,
-                )
-                parts.append({"PartNumber": part_number, "ETag": resp["ETag"]})
+            while True:
+                chunk = fh.read(part_size)
+                if not chunk:
+                    break
+                chunks.append((part_number, chunk))
                 part_number += 1
+
+        parts: list[dict[str, Any]] = []
+        with ThreadPoolExecutor(max_workers=min(len(chunks), 10)) as pool:
+            futures = {pool.submit(_upload_part, pn, data): pn for pn, data in chunks}
+            for future in as_completed(futures):
+                parts.append(future.result())
+
+        # Parts must be ordered by part number for completion
+        parts.sort(key=lambda p: p["PartNumber"])
 
         client.complete_multipart_upload(
             Bucket=bucket,
@@ -538,7 +588,7 @@ def multipart_upload(
         )
     except Exception as exc:
         client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
-        raise RuntimeError(f"Multipart upload failed for s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Multipart upload failed for s3://{bucket}/{key}") from exc
 
 
 def delete_prefix(
@@ -572,7 +622,7 @@ def delete_prefix(
             client.delete_objects(Bucket=bucket, Delete={"Objects": keys, "Quiet": True})
             deleted_count += len(keys)
     except ClientError as exc:
-        raise RuntimeError(f"delete_prefix failed for s3://{bucket}/{prefix}: {exc}") from exc
+        raise wrap_aws_error(exc, f"delete_prefix failed for s3://{bucket}/{prefix}") from exc
     return deleted_count
 
 
@@ -603,7 +653,7 @@ def get_object_metadata(
     bucket: str,
     key: str,
     region_name: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Fetch the metadata of an S3 object without downloading its body.
 
     Uses ``HeadObject`` which is faster and cheaper than ``GetObject``.
@@ -624,7 +674,7 @@ def get_object_metadata(
     try:
         resp = client.head_object(Bucket=bucket, Key=key)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to get metadata for s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get metadata for s3://{bucket}/{key}") from exc
     return {
         "content_type": resp.get("ContentType"),
         "content_length": resp.get("ContentLength"),
@@ -650,9 +700,8 @@ def batch_copy(
     Raises:
         RuntimeError: If any copy operation fails.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def _copy(op: dict) -> None:
+    def _copy(op: dict[str, str]) -> None:
         copy_object(
             op["src_bucket"],
             op["src_key"],
@@ -665,14 +714,15 @@ def batch_copy(
     with ThreadPoolExecutor(max_workers=min(len(copies), 20)) as pool:
         futures = {pool.submit(_copy, op): op for op in copies}
         for future in as_completed(futures):
-            futures[future]
+            op = futures[future]
             try:
                 future.result()
             except RuntimeError as exc:
-                errors.append(str(exc))
+                src = f"s3://{op['src_bucket']}/{op['src_key']}"
+                errors.append(f"{src}: {exc}")
 
     if errors:
-        raise RuntimeError(f"batch_copy had {len(errors)} failure(s): {errors[0]}")
+        raise AwsServiceError(f"batch_copy had {len(errors)} failure(s): {errors[0]}")
 
 
 def download_as_text(
@@ -705,7 +755,7 @@ def generate_presigned_post(
     max_size_mb: int = 10,
     expires_in: int = 3600,
     region_name: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Generate a pre-signed POST policy for browser-based S3 uploads.
 
     The returned dict contains ``url`` and ``fields`` which can be used in an
@@ -725,8 +775,6 @@ def generate_presigned_post(
     Raises:
         RuntimeError: If the policy generation fails.
     """
-    from botocore.exceptions import ClientError as _CE
-
     client = get_client("s3", region_name)
     conditions = [["content-length-range", 1, max_size_mb * 1024 * 1024]]
     try:
@@ -736,7 +784,7 @@ def generate_presigned_post(
             Conditions=conditions,
             ExpiresIn=expires_in,
         )
-    except _CE as exc:
-        raise RuntimeError(
-            f"Failed to generate presigned POST for s3://{bucket}/{key}: {exc}"
+    except ClientError as exc:
+        raise wrap_aws_error(
+            exc, f"Failed to generate presigned POST for s3://{bucket}/{key}"
         ) from exc

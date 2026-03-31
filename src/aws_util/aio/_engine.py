@@ -31,13 +31,22 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
+
+# Non-cryptographic randomness is intentional — used only for backoff jitter,
+# not for security.  ``random.uniform`` gives the best distribution for
+# "full jitter" (AWS recommended) and avoids the overhead of ``secrets``.
+import random
 import ssl
+import threading
 import time
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 from urllib.parse import urlencode
 
 import aiohttp
 import botocore.loaders
+import botocore.model
 import botocore.parsers
 import botocore.regions
 import botocore.serialize
@@ -48,6 +57,8 @@ from botocore.credentials import (
     RefreshableCredentials,
 )
 from pydantic import BaseModel, ConfigDict
+
+from aws_util.exceptions import AwsServiceError
 
 # ---------------------------------------------------------------------------
 # Configuration model
@@ -86,15 +97,19 @@ _CB_HALF_OPEN = "half_open"
 
 
 class _CircuitBreaker:
-    """Simple per-service circuit breaker."""
+    """Simple per-service circuit breaker.
+
+    Note: circuit breaker state is process-local and not shared across
+    Lambda containers or processes.
+    """
 
     __slots__ = (
-        "_threshold",
-        "_recovery",
         "_failures",
-        "_state",
-        "_opened_at",
         "_lock",
+        "_opened_at",
+        "_recovery",
+        "_state",
+        "_threshold",
     )
 
     def __init__(self, threshold: int, recovery: float) -> None:
@@ -112,7 +127,7 @@ class _CircuitBreaker:
                 if time.monotonic() - self._opened_at >= self._recovery:
                     self._state = _CB_HALF_OPEN
                 else:
-                    raise RuntimeError("Circuit breaker open — service unavailable")
+                    raise AwsServiceError("Circuit breaker open — service unavailable")
 
     async def record_success(self) -> None:
         async with self._lock:
@@ -157,7 +172,7 @@ class _AsyncCredentialProvider:
                 return self._creds
             resolver = self._session.get_credentials()
             if resolver is None:  # pragma: no cover
-                raise RuntimeError("No AWS credentials available")
+                raise AwsServiceError("No AWS credentials available")
             frozen = await asyncio.to_thread(resolver.get_frozen_credentials)
             self._creds = Credentials(
                 frozen.access_key or "",
@@ -182,7 +197,7 @@ class _AsyncCredentialProvider:
 class _Transport:
     """Manages a single ``aiohttp.ClientSession`` with connection pooling."""
 
-    __slots__ = ("_config", "_connector", "_session", "_lock")
+    __slots__ = ("_config", "_connector", "_lock", "_session")
 
     def __init__(self, config: EngineConfig) -> None:
         self._config = config
@@ -252,10 +267,6 @@ def _get_service_model(service: str) -> Any:
         api_data = _loader.load_service_model(service, "service-2")
         _model_cache[service] = botocore.model.ServiceModel(api_data, service)
     return _model_cache[service]
-
-
-# Need to import botocore.model after the above
-import botocore.model  # noqa: E402
 
 
 def _build_request(
@@ -336,12 +347,29 @@ def _parse_response(
 # ---------------------------------------------------------------------------
 
 _endpoint_cache: dict[tuple[str, str], str] = {}
+_botocore_session: botocore.session.Session | None = None
+
+
+def _get_botocore_session() -> botocore.session.Session:
+    """Return a module-level cached botocore session."""
+    global _botocore_session
+    if _botocore_session is None:
+        _botocore_session = botocore.session.get_session()
+    return _botocore_session
 
 
 def _resolve_endpoint(service: str, region: str) -> str:
+    """Resolve the endpoint URL for *service* in *region*.
+
+    If the ``AWS_ENDPOINT_URL`` environment variable is set it is returned
+    directly — this enables local testing with localstack / moto.
+    """
+    override = os.environ.get("AWS_ENDPOINT_URL")
+    if override:
+        return override.rstrip("/")
     key = (service, region)
     if key not in _endpoint_cache:
-        session = botocore.session.get_session()
+        session = _get_botocore_session()
         resolver = session.get_component("endpoint_resolver")
         ep = resolver.construct_endpoint(service, region)
         if ep:
@@ -355,7 +383,8 @@ def _resolve_endpoint(service: str, region: str) -> str:
 
 
 def _default_region() -> str:
-    session = botocore.session.get_session()
+    """Return the configured AWS region, falling back to ``us-east-1``."""
+    session = _get_botocore_session()
     region = session.get_config_variable("region")
     return region or "us-east-1"
 
@@ -402,15 +431,15 @@ class AsyncClient:
     """
 
     __slots__ = (
-        "_service",
-        "_region",
-        "_endpoint_url",
-        "_service_model",
-        "_transport",
-        "_creds",
         "_breaker",
         "_config",
+        "_creds",
+        "_endpoint_url",
+        "_region",
         "_semaphore",
+        "_service",
+        "_service_model",
+        "_transport",
     )
 
     def __init__(
@@ -465,13 +494,13 @@ class AsyncClient:
                     resp_body = await resp.read()
                     resp_headers = dict(resp.headers)
                     resp.release()
-                except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                except (TimeoutError, aiohttp.ClientError) as exc:
                     await self._breaker.record_failure()
                     if attempt < cfg.retry_max_attempts - 1:
                         delay = _jitter_delay(attempt, cfg)
                         await asyncio.sleep(delay)
                         continue
-                    raise RuntimeError(
+                    raise AwsServiceError(
                         f"{self._service}.{operation} transport error: {exc}"
                     ) from exc
 
@@ -494,12 +523,12 @@ class AsyncClient:
                 error = parsed.get("Error", {})
                 code = error.get("Code", resp.status)
                 msg = error.get("Message", "Unknown error")
-                raise RuntimeError(f"{self._service}.{operation} failed [{code}]: {msg}")
+                raise AwsServiceError(f"{self._service}.{operation} failed [{code}]: {msg}")
 
             await self._breaker.record_success()
             return parsed
 
-        raise RuntimeError(
+        raise AwsServiceError(
             f"{self._service}.{operation} failed after {cfg.retry_max_attempts} attempts"
         )
 
@@ -513,6 +542,20 @@ class AsyncClient:
 
         Ideal for large S3 downloads, Bedrock streaming, etc.
 
+        Connection-level errors (``aiohttp.ClientError``,
+        ``asyncio.TimeoutError``) are retried with the same jitter/backoff
+        strategy as :meth:`call`, but **only before streaming begins**.
+        Once the first byte of the response body has been received, a
+        failure will propagate to the caller because rewinding a stream is
+        not possible.
+
+        .. note::
+
+           The concurrency semaphore is held for the entire lifetime of
+           the stream — from the initial HTTP request until the last
+           chunk has been yielded.  Callers should consume the stream
+           promptly to avoid starving other concurrent requests.
+
         Yields:
             ``bytes`` chunks of the response body.
         """
@@ -522,22 +565,43 @@ class AsyncClient:
         _chunk = chunk_size or cfg.streaming_chunk_size
 
         async with self._semaphore:
-            method, url, headers, body = _build_request(
-                self._service_model,
-                operation,
-                params,
-                self._endpoint_url,
-                credentials,
-                self._region,
-                self._service,
-            )
-            resp = await self._transport.request(method, url, headers, body)
+            resp: aiohttp.ClientResponse | None = None
+            for attempt in range(cfg.retry_max_attempts):
+                method, url, headers, body = _build_request(
+                    self._service_model,
+                    operation,
+                    params,
+                    self._endpoint_url,
+                    credentials,
+                    self._region,
+                    self._service,
+                )
+                try:
+                    resp = await self._transport.request(
+                        method,
+                        url,
+                        headers,
+                        body,
+                    )
+                    break  # connection succeeded
+                except (TimeoutError, aiohttp.ClientError) as exc:
+                    await self._breaker.record_failure()
+                    if attempt < cfg.retry_max_attempts - 1:
+                        delay = _jitter_delay(attempt, cfg)
+                        await asyncio.sleep(delay)
+                        continue
+                    raise AwsServiceError(
+                        f"{self._service}.{operation} stream transport error: {exc}"
+                    ) from exc
+
+            # Should never happen — the loop either breaks or raises.
+            assert resp is not None
 
             if resp.status >= 300:
                 await resp.read()
                 resp.release()
                 await self._breaker.record_failure()
-                raise RuntimeError(f"{self._service}.{operation} stream error [{resp.status}]")
+                raise AwsServiceError(f"{self._service}.{operation} stream error [{resp.status}]")
 
             await self._breaker.record_success()
             async for chunk in resp.content.iter_chunked(_chunk):
@@ -607,7 +671,9 @@ class AsyncClient:
             if check(resp):
                 return resp
             if time.monotonic() + interval > deadline:
-                raise RuntimeError(f"{self._service}.{operation} wait timed out after {max_wait}s")
+                raise AwsServiceError(
+                    f"{self._service}.{operation} wait timed out after {max_wait}s"
+                )
             await asyncio.sleep(interval)
 
     async def close(self) -> None:
@@ -620,48 +686,68 @@ class AsyncClient:
 # ---------------------------------------------------------------------------
 
 _global_transport: _Transport | None = None
-_global_transport_lock = asyncio.Lock()
+_global_transport_lock = threading.Lock()
 
 _global_creds: _AsyncCredentialProvider | None = None
-_global_creds_lock = asyncio.Lock()
+_global_creds_lock = threading.Lock()
 
 _breakers: dict[str, _CircuitBreaker] = {}
+_breakers_lock = threading.Lock()
 
 
 def _get_global_transport(config: EngineConfig) -> _Transport:
+    """Return (or create) the singleton ``_Transport``.
+
+    Protected by a ``threading.Lock`` to avoid the TOCTOU race where two
+    threads check ``_global_transport is None`` concurrently and both
+    create a new instance.
+    """
     global _global_transport
-    if _global_transport is None:
-        _global_transport = _Transport(config)
-    return _global_transport
+    if _global_transport is not None:
+        return _global_transport
+    with _global_transport_lock:
+        if _global_transport is None:
+            _global_transport = _Transport(config)
+        return _global_transport
 
 
 def _get_global_creds() -> _AsyncCredentialProvider:
+    """Return (or create) the singleton ``_AsyncCredentialProvider``.
+
+    Protected by a ``threading.Lock`` — see ``_get_global_transport``.
+    """
     global _global_creds
-    if _global_creds is None:
-        session = botocore.session.get_session()
-        _global_creds = _AsyncCredentialProvider(session)
-    return _global_creds
+    if _global_creds is not None:
+        return _global_creds
+    with _global_creds_lock:
+        if _global_creds is None:
+            session = _get_botocore_session()
+            _global_creds = _AsyncCredentialProvider(session)
+        return _global_creds
 
 
 def _get_breaker(service: str, config: EngineConfig) -> _CircuitBreaker:
-    if service not in _breakers:
-        _breakers[service] = _CircuitBreaker(
-            config.circuit_breaker_threshold,
-            config.circuit_breaker_recovery,
-        )
-    return _breakers[service]
+    """Return (or create) a per-service circuit breaker."""
+    if service in _breakers:
+        return _breakers[service]
+    with _breakers_lock:
+        if service not in _breakers:
+            _breakers[service] = _CircuitBreaker(
+                config.circuit_breaker_threshold,
+                config.circuit_breaker_recovery,
+            )
+        return _breakers[service]
 
 
 def _jitter_delay(attempt: int, config: EngineConfig) -> float:
-    import random
-
+    """Compute a jittered backoff delay (full-jitter strategy)."""
     base = config.retry_base_delay * (2**attempt)
     capped = min(base, config.retry_max_delay)
-    return random.uniform(0, capped)  # noqa: S311
+    return random.uniform(0, capped)
 
 
 # ---------------------------------------------------------------------------
-# Client cache — weak references allow GC when callers drop refs
+# Client cache — plain dict; entries persist for the lifetime of the process
 # ---------------------------------------------------------------------------
 
 _client_cache: dict[tuple[str, str | None], AsyncClient] = {}

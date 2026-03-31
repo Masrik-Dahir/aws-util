@@ -26,8 +26,31 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "CSVToDynamoDBResult",
+    "CrossRegionReplicateResult",
+    "ETLStatusRecord",
+    "KinesisToFirehoseResult",
+    "MultipartUploadResult",
+    "PartitionResult",
+    "S3ToDynamoDBResult",
+    "StreamToOpenSearchResult",
+    "StreamToS3Result",
+    "cross_region_s3_replicator",
+    "data_lake_partition_manager",
+    "dynamodb_stream_to_opensearch",
+    "dynamodb_stream_to_s3_archive",
+    "etl_status_tracker",
+    "kinesis_to_firehose_transformer",
+    "repair_partitions",
+    "s3_csv_to_dynamodb_bulk",
+    "s3_event_to_dynamodb",
+    "s3_multipart_upload_manager",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -170,7 +193,7 @@ def s3_event_to_dynamodb(
         resp = s3.get_object(Bucket=bucket, Key=key)
         body = resp["Body"].read().decode("utf-8")
     except ClientError as exc:
-        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to read s3://{bucket}/{key}") from exc
 
     # Parse JSON array or JSON-lines
     records: list[dict[str, Any]]
@@ -206,7 +229,7 @@ def s3_event_to_dynamodb(
             written += len(chunk) - len(unprocessed)
             errors += len(unprocessed)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to batch write to {table_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to batch write to {table_name!r}") from exc
 
     return S3ToDynamoDBResult(
         bucket=bucket,
@@ -346,7 +369,7 @@ def _opensearch_put(
         method="PUT",
         headers={"Content-Type": "application/json"},
     )
-    urllib.request.urlopen(req)  # noqa: S310
+    urllib.request.urlopen(req)
 
 
 def _opensearch_delete(endpoint: str, index: str, doc_id: Any) -> None:
@@ -355,7 +378,7 @@ def _opensearch_delete(endpoint: str, index: str, doc_id: Any) -> None:
 
     url = f"{endpoint.rstrip('/')}/{index}/_doc/{doc_id}"
     req = urllib.request.Request(url, method="DELETE")
-    urllib.request.urlopen(req)  # noqa: S310
+    urllib.request.urlopen(req)
 
 
 # ---------------------------------------------------------------------------
@@ -400,8 +423,8 @@ def dynamodb_stream_to_s3_archive(
     try:
         s3.put_object(Bucket=bucket, Key=key, Body=body.encode())
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to archive stream records to s3://{bucket}/{key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to archive stream records to s3://{bucket}/{key}"
         ) from exc
 
     return StreamToS3Result(
@@ -446,7 +469,7 @@ def s3_csv_to_dynamodb_bulk(
         resp = s3.get_object(Bucket=bucket, Key=key)
         body = resp["Body"].read().decode("utf-8")
     except ClientError as exc:
-        raise RuntimeError(f"Failed to read s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to read s3://{bucket}/{key}") from exc
 
     reader = csv.DictReader(io.StringIO(body))
     written = 0
@@ -505,7 +528,7 @@ def _write_csv_batch(
         unprocessed = resp.get("UnprocessedItems", {}).get(table_name, [])
         return len(batch) - len(unprocessed), len(unprocessed)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to batch write to {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to batch write to {table_name!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -545,7 +568,7 @@ def kinesis_to_firehose_transformer(
         stream_desc = kinesis.describe_stream(StreamName=stream_name)
         shards = stream_desc["StreamDescription"]["Shards"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe Kinesis stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe Kinesis stream {stream_name!r}") from exc
 
     total_read = 0
     total_written = 0
@@ -603,8 +626,8 @@ def kinesis_to_firehose_transformer(
                         failed,
                     )
             except ClientError as exc:
-                raise RuntimeError(
-                    f"Failed to put records to Firehose {delivery_stream!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to put records to Firehose {delivery_stream!r}"
                 ) from exc
 
     return KinesisToFirehoseResult(
@@ -656,7 +679,7 @@ def cross_region_s3_replicator(
         content_type = resp.get("ContentType", "application/octet-stream")
         metadata = resp.get("Metadata", {})
     except ClientError as exc:
-        raise RuntimeError(f"Failed to read s3://{source_bucket}/{source_key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to read s3://{source_bucket}/{source_key}") from exc
 
     try:
         s3_dst.put_object(
@@ -667,7 +690,7 @@ def cross_region_s3_replicator(
             Metadata=metadata,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to write s3://{dest_bucket}/{actual_dest_key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to write s3://{dest_bucket}/{actual_dest_key}") from exc
 
     if sns_topic_arn:
         sns = get_client("sns", source_region)
@@ -743,7 +766,7 @@ def etl_status_tracker(
     try:
         ddb.put_item(TableName=table_name, Item=item)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to track ETL status for {pipeline_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to track ETL status for {pipeline_id!r}") from exc
 
     if metric_namespace:
         cw = get_client("cloudwatch", region_name)
@@ -823,7 +846,7 @@ def s3_multipart_upload_manager(
                 kwargs["Metadata"] = metadata
             s3.put_object(**kwargs)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to upload s3://{bucket}/{key}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to upload s3://{bucket}/{key}") from exc
 
         return MultipartUploadResult(
             bucket=bucket,
@@ -893,7 +916,7 @@ def s3_multipart_upload_manager(
                 )
             except ClientError as abort_exc:
                 logger.error("Failed to abort multipart upload: %s", abort_exc)
-        raise RuntimeError(f"Multipart upload failed for s3://{bucket}/{key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Multipart upload failed for s3://{bucket}/{key}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -934,7 +957,7 @@ def data_lake_partition_manager(
         table_resp = glue.get_table(DatabaseName=database, Name=table)
         storage_descriptor = table_resp["Table"]["StorageDescriptor"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to get Glue table {database}.{table}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get Glue table {database}.{table}") from exc
 
     added = 0
     for pv in partition_values:
@@ -1002,7 +1025,7 @@ def repair_partitions(
             },
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to repair partitions for {database}.{table}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to repair partitions for {database}.{table}") from exc
 
     query_id = resp["QueryExecutionId"]
     logger.info("Started partition repair query %s", query_id)

@@ -7,6 +7,25 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "AuthResult",
+    "CognitoUser",
+    "CognitoUserPool",
+    "admin_add_user_to_group",
+    "admin_create_user",
+    "admin_delete_user",
+    "admin_get_user",
+    "admin_initiate_auth",
+    "admin_remove_user_from_group",
+    "admin_set_user_password",
+    "bulk_create_users",
+    "get_or_create_user",
+    "list_user_pools",
+    "list_users",
+    "reset_user_password",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -95,7 +114,7 @@ def admin_create_user(
     try:
         resp = client.admin_create_user(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create Cognito user {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create Cognito user {username!r}") from exc
     return _parse_user(resp["User"])
 
 
@@ -115,7 +134,7 @@ def admin_get_user(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "UserNotFoundException":
             return None
-        raise RuntimeError(f"admin_get_user failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"admin_get_user failed for {username!r}") from exc
     attrs = {a["Name"]: a["Value"] for a in resp.get("UserAttributes", [])}
     return CognitoUser(
         username=resp["Username"],
@@ -146,7 +165,7 @@ def admin_delete_user(
     try:
         client.admin_delete_user(UserPoolId=user_pool_id, Username=username)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete Cognito user {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete Cognito user {username!r}") from exc
 
 
 def admin_set_user_password(
@@ -178,7 +197,7 @@ def admin_set_user_password(
             Permanent=permanent,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to set password for Cognito user {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to set password for Cognito user {username!r}") from exc
 
 
 def admin_add_user_to_group(
@@ -206,7 +225,7 @@ def admin_add_user_to_group(
             GroupName=group_name,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to add {username!r} to group {group_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to add {username!r} to group {group_name!r}") from exc
 
 
 def admin_remove_user_from_group(
@@ -234,8 +253,8 @@ def admin_remove_user_from_group(
             GroupName=group_name,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to remove {username!r} from group {group_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to remove {username!r} from group {group_name!r}"
         ) from exc
 
 
@@ -274,7 +293,7 @@ def list_users(
             for user in page.get("Users", []):
                 users.append(_parse_user(user))
     except ClientError as exc:
-        raise RuntimeError(f"list_users failed for pool {user_pool_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"list_users failed for pool {user_pool_id!r}") from exc
     return users
 
 
@@ -309,7 +328,7 @@ def admin_initiate_auth(
             AuthParameters={"USERNAME": username, "PASSWORD": password},
         )
     except ClientError as exc:
-        raise RuntimeError(f"admin_initiate_auth failed: {exc}") from exc
+        raise wrap_aws_error(exc, "admin_initiate_auth failed") from exc
     result = resp.get("AuthenticationResult", {})
     return AuthResult(
         access_token=result.get("AccessToken"),
@@ -350,7 +369,7 @@ def list_user_pools(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_user_pools failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_user_pools failed") from exc
     return pools
 
 
@@ -469,4 +488,4 @@ def reset_user_password(
     try:
         client.admin_reset_user_password(UserPoolId=user_pool_id, Username=username)
     except ClientError as exc:
-        raise RuntimeError(f"reset_user_password failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"reset_user_password failed for {username!r}") from exc

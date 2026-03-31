@@ -15,6 +15,23 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "DLQReprocessResult",
+    "RotationResult",
+    "S3InventoryResult",
+    "backup_dynamodb_to_s3",
+    "cross_account_s3_copy",
+    "delete_stale_ecr_images",
+    "lambda_invoke_with_secret",
+    "publish_s3_keys_to_sqs",
+    "rebuild_athena_partitions",
+    "reprocess_sqs_dlq",
+    "rotate_secret_and_notify",
+    "s3_inventory_to_dynamodb",
+    "sync_ssm_params_to_lambda_env",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -112,7 +129,7 @@ def reprocess_sqs_dlq(
                 except ClientError:
                     failed += 1
     except ClientError as exc:
-        raise RuntimeError(f"reprocess_sqs_dlq failed: {exc}") from exc
+        raise wrap_aws_error(exc, "reprocess_sqs_dlq failed") from exc
 
     return DLQReprocessResult(reprocessed=reprocessed, failed=failed, total_read=total_read)
 
@@ -151,14 +168,14 @@ def backup_dynamodb_to_s3(
         for page in paginator.paginate(TableName=table_name):
             items.extend(page.get("Items", []))
     except ClientError as exc:
-        raise RuntimeError(f"backup_dynamodb_to_s3 scan failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"backup_dynamodb_to_s3 scan failed on {table_name!r}") from exc
 
     body = "\n".join(json.dumps(item) for item in items)
     try:
         s3.put_object(Bucket=s3_bucket, Key=s3_key, Body=body.encode())
     except ClientError as exc:
-        raise RuntimeError(
-            f"backup_dynamodb_to_s3 upload failed to s3://{s3_bucket}/{s3_key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"backup_dynamodb_to_s3 upload failed to s3://{s3_bucket}/{s3_key}"
         ) from exc
 
     return s3_key
@@ -202,7 +219,7 @@ def sync_ssm_params_to_lambda_env(
                 key = p["Name"].split("/")[-1].upper()
                 params[key] = p["Value"]
     except ClientError as exc:
-        raise RuntimeError(f"sync_ssm_params_to_lambda_env SSM fetch failed: {exc}") from exc
+        raise wrap_aws_error(exc, "sync_ssm_params_to_lambda_env SSM fetch failed") from exc
 
     try:
         cfg = lam.get_function_configuration(FunctionName=function_name)
@@ -213,7 +230,7 @@ def sync_ssm_params_to_lambda_env(
             Environment={"Variables": env},
         )
     except ClientError as exc:
-        raise RuntimeError(f"sync_ssm_params_to_lambda_env Lambda update failed: {exc}") from exc
+        raise wrap_aws_error(exc, "sync_ssm_params_to_lambda_env Lambda update failed") from exc
 
     return env
 
@@ -251,7 +268,7 @@ def delete_stale_ecr_images(
         for page in paginator.paginate(repositoryName=repository_name):
             all_images.extend(page.get("imageDetails", []))
     except ClientError as exc:
-        raise RuntimeError(f"delete_stale_ecr_images list failed: {exc}") from exc
+        raise wrap_aws_error(exc, "delete_stale_ecr_images list failed") from exc
 
     all_images.sort(key=lambda img: img.get("imagePushedAt", 0), reverse=True)
     stale = all_images[keep_count:]
@@ -262,7 +279,7 @@ def delete_stale_ecr_images(
     try:
         ecr.batch_delete_image(repositoryName=repository_name, imageIds=image_ids)
     except ClientError as exc:
-        raise RuntimeError(f"delete_stale_ecr_images batch_delete failed: {exc}") from exc
+        raise wrap_aws_error(exc, "delete_stale_ecr_images batch_delete failed") from exc
 
     deleted = [img["imageDigest"] for img in stale]
 
@@ -319,23 +336,23 @@ def rebuild_athena_partitions(
         )
         qid = resp["QueryExecutionId"]
     except ClientError as exc:
-        raise RuntimeError(f"rebuild_athena_partitions start failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rebuild_athena_partitions start failed") from exc
 
     for _ in range(120):
         try:
             status = athena.get_query_execution(QueryExecutionId=qid)
             state = status["QueryExecution"]["Status"]["State"]
         except ClientError as exc:
-            raise RuntimeError(f"rebuild_athena_partitions poll failed: {exc}") from exc
+            raise wrap_aws_error(exc, "rebuild_athena_partitions poll failed") from exc
 
         if state == "SUCCEEDED":
             return qid
         if state in ("FAILED", "CANCELLED"):
             reason = status["QueryExecution"]["Status"].get("StateChangeReason", "unknown")
-            raise RuntimeError(f"rebuild_athena_partitions query {state}: {reason}")
+            raise AwsServiceError(f"rebuild_athena_partitions query {state}: {reason}")
         time.sleep(1)
 
-    raise RuntimeError("rebuild_athena_partitions timed out waiting for query")
+    raise AwsServiceError("rebuild_athena_partitions timed out waiting for query")
 
 
 # ---------------------------------------------------------------------------
@@ -388,11 +405,11 @@ def s3_inventory_to_dynamodb(
                     dynamo.put_item(TableName=table_name, Item=item)
                     items_written += 1
                 except ClientError as exc:
-                    raise RuntimeError(f"s3_inventory_to_dynamodb write failed: {exc}") from exc
+                    raise wrap_aws_error(exc, "s3_inventory_to_dynamodb write failed") from exc
     except RuntimeError:
         raise
     except ClientError as exc:
-        raise RuntimeError(f"s3_inventory_to_dynamodb list failed: {exc}") from exc
+        raise wrap_aws_error(exc, "s3_inventory_to_dynamodb list failed") from exc
 
     return S3InventoryResult(bucket=bucket_name, items_written=items_written, prefix=prefix)
 
@@ -438,12 +455,12 @@ def cross_account_s3_copy(
             RoleSessionName="cross-account-s3-copy",
         )["Credentials"]
     except ClientError as exc:
-        raise RuntimeError(f"cross_account_s3_copy assume_role failed: {exc}") from exc
+        raise wrap_aws_error(exc, "cross_account_s3_copy assume_role failed") from exc
 
     try:
         data = s3_source.get_object(Bucket=source_bucket, Key=source_key)["Body"].read()
     except ClientError as exc:
-        raise RuntimeError(f"cross_account_s3_copy get_object failed: {exc}") from exc
+        raise wrap_aws_error(exc, "cross_account_s3_copy get_object failed") from exc
 
     dest_s3 = boto3.client(  # type: ignore[call-overload]
         "s3",
@@ -455,7 +472,7 @@ def cross_account_s3_copy(
     try:
         dest_s3.put_object(Bucket=dest_bucket, Key=dest_key, Body=data)
     except ClientError as exc:
-        raise RuntimeError(f"cross_account_s3_copy put_object failed: {exc}") from exc
+        raise wrap_aws_error(exc, "cross_account_s3_copy put_object failed") from exc
 
     return dest_key
 
@@ -498,7 +515,7 @@ def rotate_secret_and_notify(
             kwargs["RotationRules"] = {"AutomaticallyAfterDays": 30}
         sm.rotate_secret(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"rotate_secret_and_notify rotation failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rotate_secret_and_notify rotation failed") from exc
 
     try:
         resp = sns.publish(
@@ -508,7 +525,7 @@ def rotate_secret_and_notify(
         )
         message_id = resp.get("MessageId")
     except ClientError as exc:
-        raise RuntimeError(f"rotate_secret_and_notify SNS publish failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rotate_secret_and_notify SNS publish failed") from exc
 
     return RotationResult(secret_id=secret_id, rotation_enabled=True, message_id=message_id)
 
@@ -546,7 +563,7 @@ def lambda_invoke_with_secret(
         secret_value = sm.get_secret_value(SecretId=secret_id)
         raw = secret_value.get("SecretString") or secret_value.get("SecretBinary", b"").decode()
     except ClientError as exc:
-        raise RuntimeError(f"lambda_invoke_with_secret get_secret failed: {exc}") from exc
+        raise wrap_aws_error(exc, "lambda_invoke_with_secret get_secret failed") from exc
 
     try:
         payload = json.loads(raw) if isinstance(raw, str) else raw
@@ -568,7 +585,7 @@ def lambda_invoke_with_secret(
         else:
             result_payload = None
     except ClientError as exc:
-        raise RuntimeError(f"lambda_invoke_with_secret invoke failed: {exc}") from exc
+        raise wrap_aws_error(exc, "lambda_invoke_with_secret invoke failed") from exc
 
     return {"status_code": resp["StatusCode"], "payload": result_payload}
 
@@ -617,7 +634,7 @@ def publish_s3_keys_to_sqs(
             for obj in page.get("Contents", []):
                 keys.append(obj["Key"])
     except ClientError as exc:
-        raise RuntimeError(f"publish_s3_keys_to_sqs list failed: {exc}") from exc
+        raise wrap_aws_error(exc, "publish_s3_keys_to_sqs list failed") from exc
 
     effective_batch = min(batch_size, 10)
     for i in range(0, len(keys), effective_batch):
@@ -633,6 +650,6 @@ def publish_s3_keys_to_sqs(
             resp = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
             sent += len(resp.get("Successful", []))
         except ClientError as exc:
-            raise RuntimeError(f"publish_s3_keys_to_sqs send_batch failed: {exc}") from exc
+            raise wrap_aws_error(exc, "publish_s3_keys_to_sqs send_batch failed") from exc
 
     return sent

@@ -9,6 +9,20 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "CFNStack",
+    "create_stack",
+    "delete_stack",
+    "deploy_stack",
+    "describe_stack",
+    "get_export_value",
+    "get_stack_outputs",
+    "list_stacks",
+    "update_stack",
+    "wait_for_stack",
+]
 
 _TERMINAL_STATUSES = {
     "CREATE_COMPLETE",
@@ -86,7 +100,7 @@ def describe_stack(
     except ClientError as exc:
         if "does not exist" in str(exc):
             return None
-        raise RuntimeError(f"describe_stack failed for {stack_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_stack failed for {stack_name!r}") from exc
     stacks = resp.get("Stacks", [])
     return _parse_stack(stacks[0]) if stacks else None
 
@@ -141,7 +155,7 @@ def list_stacks(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_stacks failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_stacks failed") from exc
     return stacks
 
 
@@ -163,7 +177,7 @@ def get_stack_outputs(
     """
     stack = describe_stack(stack_name, region_name=region_name)
     if stack is None:
-        raise RuntimeError(f"Stack {stack_name!r} not found")
+        raise AwsServiceError(f"Stack {stack_name!r} not found")
     return stack.outputs
 
 
@@ -212,7 +226,7 @@ def create_stack(
     try:
         resp = client.create_stack(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create stack {stack_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create stack {stack_name!r}") from exc
     return resp["StackId"]
 
 
@@ -254,7 +268,7 @@ def update_stack(
     try:
         resp = client.update_stack(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to update stack {stack_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update stack {stack_name!r}") from exc
     return resp["StackId"]
 
 
@@ -275,7 +289,7 @@ def delete_stack(
     try:
         client.delete_stack(StackName=stack_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete stack {stack_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete stack {stack_name!r}") from exc
 
 
 def wait_for_stack(
@@ -303,7 +317,7 @@ def wait_for_stack(
     while True:
         stack = describe_stack(stack_name, region_name=region_name)
         if stack is None:
-            raise RuntimeError(f"Stack {stack_name!r} not found during wait")
+            raise AwsServiceError(f"Stack {stack_name!r} not found during wait")
         if stack.is_stable:
             return stack
         if time.monotonic() >= deadline:
@@ -401,7 +415,7 @@ def deploy_stack(
 
     stack = wait_for_stack(stack_name, timeout=timeout, region_name=region_name)
     if not stack.is_healthy:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"Stack {stack_name!r} deployment failed with status "
             f"{stack.status!r}: {stack.status_reason}"
         )
@@ -437,6 +451,6 @@ def get_export_value(
                 if export["Name"] == export_name:
                     return export["Value"]
     except ClientError as exc:
-        raise RuntimeError(f"get_export_value failed: {exc}") from exc
+        raise wrap_aws_error(exc, "get_export_value failed") from exc
 
     raise KeyError(f"CloudFormation export {export_name!r} not found")

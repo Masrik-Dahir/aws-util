@@ -8,14 +8,15 @@ import json
 from typing import Any, Literal
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.lambda_ import InvokeResult
 
 __all__ = [
     "InvokeResult",
+    "fan_out",
     "invoke",
     "invoke_async",
     "invoke_with_retry",
-    "fan_out",
 ]
 
 
@@ -74,7 +75,7 @@ async def invoke(
         client = async_client("lambda", region_name)
         resp = await client.call("Invoke", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to invoke Lambda {function_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to invoke Lambda {function_name!r}") from exc
 
     # Parse the response payload
     raw_response = resp.get("Payload", b"")
@@ -179,9 +180,9 @@ async def invoke_with_retry(
                 sleep_time = backoff_base * (2**attempt)
                 await asyncio.sleep(sleep_time)
 
-    raise RuntimeError(
-        f"invoke_with_retry: all {max_retries + 1} attempts failed for "
-        f"{function_name!r}. Last error: {last_exc}"
+    raise wrap_aws_error(
+        last_exc,  # type: ignore[arg-type]
+        f"invoke_with_retry: all {max_retries + 1} attempts failed for {function_name!r}",
     ) from last_exc
 
 

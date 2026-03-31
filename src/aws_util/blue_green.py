@@ -19,22 +19,23 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "ECSBlueGreenResult",
-    "WeightedRoutingResult",
     "ProvisionedConcurrencyConfig",
+    "WeightedRoutingResult",
     "ecs_blue_green_deployer",
-    "weighted_routing_manager",
     "lambda_provisioned_concurrency_scaler",
+    "weighted_routing_manager",
 ]
 
 # -------------------------------------------------------------------
@@ -61,7 +62,7 @@ class WeightedRoutingResult(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    current_weights: Dict[str, int]
+    current_weights: dict[str, int]
     steps_completed: int
     health_status: str
     notifications_sent: int
@@ -75,8 +76,8 @@ class ProvisionedConcurrencyConfig(BaseModel):
 
     alias_arn: str
     scalable_target_id: str
-    policy_arns: List[str]
-    schedule_arns: List[str]
+    policy_arns: list[str]
+    schedule_arns: list[str]
     alarm_arn: str
 
 
@@ -86,7 +87,7 @@ class ProvisionedConcurrencyConfig(BaseModel):
 
 
 def _check_alarms(
-    alarm_arns: List[str],
+    alarm_arns: list[str],
     region_name: str | None = None,
 ) -> bool:
     """Return ``True`` if all specified CloudWatch alarms are OK.
@@ -101,7 +102,7 @@ def _check_alarms(
     try:
         resp = cw.describe_alarms(AlarmNames=alarm_names)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe CloudWatch alarms: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to describe CloudWatch alarms") from exc
 
     for alarm in resp.get("MetricAlarms", []):
         if alarm.get("StateValue") == "ALARM":
@@ -144,11 +145,11 @@ def ecs_blue_green_deployer(
     lb_arn: str,
     listener_arn: str,
     health_check_path: str,
-    alarm_arns: List[str],
-    traffic_steps: List[Dict[str, Any]],
+    alarm_arns: list[str],
+    traffic_steps: list[dict[str, Any]],
     vpc_id: str,
-    subnets: List[str],
-    security_groups: List[str],
+    subnets: list[str],
+    security_groups: list[str],
     container_name: str,
     container_port: int,
     region_name: str | None = None,
@@ -202,14 +203,12 @@ def ecs_blue_green_deployer(
         listener_resp = elbv2.describe_listeners(
             ListenerArns=[listener_arn],
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to describe listener {listener_arn}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe listener {listener_arn}") from exc
 
     listeners = listener_resp.get("Listeners", [])
     if not listeners:
-        raise RuntimeError(f"Listener {listener_arn} not found")
+        raise AwsServiceError(f"Listener {listener_arn} not found")
 
     default_actions = listeners[0].get("DefaultAction", [])
     if not default_actions:
@@ -226,17 +225,15 @@ def ecs_blue_green_deployer(
             break
 
     if blue_tg_arn is None:
-        raise RuntimeError("Could not determine blue target group from listener")
+        raise AwsServiceError("Could not determine blue target group from listener")
 
     # --- Describe blue TG to copy protocol/port --------------------
     try:
         blue_tg_resp = elbv2.describe_target_groups(
             TargetGroupArns=[blue_tg_arn],
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to describe blue target group: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to describe blue target group") from exc
 
     blue_tg = blue_tg_resp["TargetGroups"][0]
 
@@ -254,10 +251,8 @@ def ecs_blue_green_deployer(
             HealthyThresholdCount=blue_tg.get("HealthyThresholdCount", 3),
             UnhealthyThresholdCount=blue_tg.get("UnhealthyThresholdCount", 3),
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create green target group: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to create green target group") from exc
 
     green_tg_arn = tg_resp["TargetGroups"][0]["TargetGroupArn"]
     logger.info("Created green target group %s", green_tg_arn)
@@ -285,10 +280,8 @@ def ecs_blue_green_deployer(
                 },
             ],
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create green ECS service: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to create green ECS service") from exc
 
     logger.info("Created green ECS service %s", green_svc_name)
 
@@ -323,10 +316,8 @@ def ecs_blue_green_deployer(
                     },
                 ],
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to shift traffic to weight {weight}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to shift traffic to weight {weight}") from exc
 
         logger.info(
             "Traffic shifted: blue=%d%% green=%d%%",
@@ -366,10 +357,8 @@ def ecs_blue_green_deployer(
                         },
                     ],
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"Failed to rollback listener: {exc}") from exc
+                raise wrap_aws_error(exc, "Failed to rollback listener") from exc
 
             # Scale green service to zero
             try:
@@ -420,9 +409,9 @@ def weighted_routing_manager(
     record_type: str,
     primary_endpoint: str,
     canary_endpoint: str,
-    weight_schedule: List[Dict[str, Any]],
-    health_check_ids: List[str],
-    alarm_arns: List[str],
+    weight_schedule: list[dict[str, Any]],
+    health_check_ids: list[str],
+    alarm_arns: list[str],
     sns_topic_arn: str,
     ttl: int = 60,
     region_name: str | None = None,
@@ -504,11 +493,10 @@ def weighted_routing_manager(
                     ],
                 },
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to update Route53 weighted records (canary_weight={canary_weight}): {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"Failed to update Route53 weighted records (canary_weight={canary_weight})",
             ) from exc
 
         current_canary_weight = canary_weight
@@ -545,10 +533,8 @@ def weighted_routing_manager(
                 status_resp = r53.get_health_check_status(
                     HealthCheckId=hc_id,
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"Failed to get health check status for {hc_id}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to get health check status for {hc_id}") from exc
 
             for obs in status_resp.get("HealthCheckObservations", []):
                 st = obs.get("StatusReport", {}).get("Status", "")
@@ -607,10 +593,8 @@ def weighted_routing_manager(
                         ],
                     },
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"Failed to revert Route53 records: {exc}") from exc
+                raise wrap_aws_error(exc, "Failed to revert Route53 records") from exc
 
             current_canary_weight = 0
             current_primary_weight = 255
@@ -659,7 +643,7 @@ def lambda_provisioned_concurrency_scaler(
     min_capacity: int,
     max_capacity: int,
     target_utilization: float,
-    schedules: List[Dict[str, Any]],
+    schedules: list[dict[str, Any]],
     cold_start_alarm_threshold: float,
     sns_topic_arn: str,
     region_name: str | None = None,
@@ -708,7 +692,7 @@ def lambda_provisioned_concurrency_scaler(
         logger.info("Alias %s already exists", alias_name)
     except ClientError as exc:
         if exc.response["Error"]["Code"] != ("ResourceNotFoundException"):
-            raise RuntimeError(f"Failed to describe alias {alias_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to describe alias {alias_name!r}") from exc
         # Create alias pointing at $LATEST
         try:
             alias_resp = lam.create_alias(
@@ -719,11 +703,10 @@ def lambda_provisioned_concurrency_scaler(
             )
             alias_arn = alias_resp["AliasArn"]
             logger.info("Created alias %s", alias_name)
-        except RuntimeError:
-            raise
         except Exception as create_exc:
-            raise RuntimeError(
-                f"Failed to create alias {alias_name!r}: {create_exc}"
+            raise wrap_aws_error(
+                create_exc,
+                f"Failed to create alias {alias_name!r}",
             ) from create_exc
 
     # --- Register scalable target -----------------------------------
@@ -738,10 +721,8 @@ def lambda_provisioned_concurrency_scaler(
             MinCapacity=min_capacity,
             MaxCapacity=max_capacity,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to register scalable target for {resource_id}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to register scalable target for {resource_id}") from exc
 
     logger.info(
         "Registered scalable target %s (min=%d, max=%d)",
@@ -752,7 +733,7 @@ def lambda_provisioned_concurrency_scaler(
 
     # --- Create target tracking scaling policy ----------------------
     policy_name = f"{function_name}-{alias_name}-utilization"
-    policy_arns: List[str] = []
+    policy_arns: list[str] = []
 
     try:
         policy_resp = aas.put_scaling_policy(
@@ -771,15 +752,13 @@ def lambda_provisioned_concurrency_scaler(
             },
         )
         policy_arns.append(policy_resp.get("PolicyARN", policy_name))
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create scaling policy {policy_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create scaling policy {policy_name!r}") from exc
 
     logger.info("Created scaling policy %s", policy_name)
 
     # --- Create scheduled scaling actions ---------------------------
-    schedule_arns: List[str] = []
+    schedule_arns: list[str] = []
 
     for idx, sched in enumerate(schedules):
         cron_expr = sched["cron"]
@@ -800,10 +779,8 @@ def lambda_provisioned_concurrency_scaler(
                 },
             )
             schedule_arns.append(action_name)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to create scheduled action {action_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to create scheduled action {action_name!r}") from exc
 
         logger.info(
             "Created scheduled action %s (cron=%s, min=%d, max=%d)",
@@ -841,10 +818,8 @@ def lambda_provisioned_concurrency_scaler(
             AlarmActions=[sns_topic_arn],
             OKActions=[sns_topic_arn],
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create CloudWatch alarm {alarm_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create CloudWatch alarm {alarm_name!r}") from exc
 
     # Retrieve alarm ARN
     try:
@@ -852,10 +827,8 @@ def lambda_provisioned_concurrency_scaler(
             AlarmNames=[alarm_name],
         )
         alarm_arn = alarm_desc["MetricAlarms"][0]["AlarmArn"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to describe alarm {alarm_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe alarm {alarm_name!r}") from exc
 
     logger.info("Created cold-start alarm %s", alarm_arn)
 

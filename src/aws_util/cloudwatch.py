@@ -1,12 +1,66 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import time
+from collections.abc import Generator
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "VALID_CLOUDWATCH_UNITS",
+    "LogEvent",
+    "MetricDatum",
+    "MetricDimension",
+    "create_alarm",
+    "create_log_group",
+    "create_log_stream",
+    "get_log_events",
+    "get_metric_statistics",
+    "put_log_events",
+    "put_metric",
+    "put_metrics",
+    "tail_log_stream",
+]
+
+# Valid CloudWatch unit strings (from CloudWatch API docs).
+VALID_CLOUDWATCH_UNITS: frozenset[str] = frozenset(
+    {
+        "Seconds",
+        "Microseconds",
+        "Milliseconds",
+        "Bytes",
+        "Kilobytes",
+        "Megabytes",
+        "Gigabytes",
+        "Terabytes",
+        "Bits",
+        "Kilobits",
+        "Megabits",
+        "Gigabits",
+        "Terabits",
+        "Percent",
+        "Count",
+        "Bytes/Second",
+        "Kilobytes/Second",
+        "Megabytes/Second",
+        "Gigabytes/Second",
+        "Terabytes/Second",
+        "Bits/Second",
+        "Kilobits/Second",
+        "Megabits/Second",
+        "Gigabits/Second",
+        "Terabits/Second",
+        "Count/Second",
+        "None",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Models
@@ -35,36 +89,7 @@ class MetricDatum(BaseModel):
     @field_validator("unit")
     @classmethod
     def _validate_unit(cls, v: str) -> str:
-        valid = {
-            "Seconds",
-            "Microseconds",
-            "Milliseconds",
-            "Bytes",
-            "Kilobytes",
-            "Megabytes",
-            "Gigabytes",
-            "Terabytes",
-            "Bits",
-            "Kilobits",
-            "Megabits",
-            "Gigabits",
-            "Terabits",
-            "Percent",
-            "Count",
-            "Bytes/Second",
-            "Kilobytes/Second",
-            "Megabytes/Second",
-            "Gigabytes/Second",
-            "Terabytes/Second",
-            "Bits/Second",
-            "Kilobits/Second",
-            "Megabits/Second",
-            "Gigabits/Second",
-            "Terabits/Second",
-            "Count/Second",
-            "None",
-        }
-        if v not in valid:
+        if v not in VALID_CLOUDWATCH_UNITS:
             raise ValueError(f"Invalid CloudWatch unit {v!r}")
         return v
 
@@ -79,7 +104,7 @@ class LogEvent(BaseModel):
     message: str
 
     @classmethod
-    def now(cls, message: str) -> "LogEvent":
+    def now(cls, message: str) -> LogEvent:
         """Create a :class:`LogEvent` timestamped to the current millisecond."""
         return cls(timestamp=int(time.time() * 1000), message=message)
 
@@ -124,19 +149,21 @@ def put_metrics(
     metrics: list[MetricDatum],
     region_name: str | None = None,
 ) -> None:
-    """Publish up to 20 metric data points to CloudWatch in one call.
+    """Publish metric data points to CloudWatch.
 
     Args:
         namespace: Metric namespace.
-        metrics: List of :class:`MetricDatum` objects (up to 20 per call).
-            Larger lists are chunked automatically.
+        metrics: List of :class:`MetricDatum` objects.  Larger lists are
+            chunked automatically into batches of up to 1000 (the
+            ``PutMetricData`` API maximum).
         region_name: AWS region override.
 
     Raises:
         RuntimeError: If any put operation fails.
     """
     client = get_client("cloudwatch", region_name)
-    chunk_size = 20
+    # AWS PutMetricData supports up to 1000 metric data items per call.
+    chunk_size = 1000
     for i in range(0, len(metrics), chunk_size):
         chunk = metrics[i : i + chunk_size]
         metric_data = [
@@ -151,7 +178,7 @@ def put_metrics(
         try:
             client.put_metric_data(Namespace=namespace, MetricData=metric_data)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to put metrics to namespace {namespace!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to put metrics to namespace {namespace!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +206,7 @@ def create_log_group(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ResourceAlreadyExistsException":
             return
-        raise RuntimeError(f"Failed to create log group {log_group_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create log group {log_group_name!r}") from exc
 
 
 def create_log_stream(
@@ -207,8 +234,8 @@ def create_log_stream(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ResourceAlreadyExistsException":
             return
-        raise RuntimeError(
-            f"Failed to create log stream {log_stream_name!r} in {log_group_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to create log stream {log_stream_name!r} in {log_group_name!r}"
         ) from exc
 
 
@@ -222,6 +249,12 @@ def put_log_events(
 
     Events must be sorted in ascending timestamp order (CloudWatch
     requirement).
+
+    .. note::
+
+        The log group and log stream must already exist.  This function does
+        **not** auto-create them.  Use :func:`create_log_group` and
+        :func:`create_log_stream` beforehand if needed.
 
     Args:
         log_group_name: Log group name.
@@ -241,8 +274,8 @@ def put_log_events(
             logEvents=log_events,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to put log events to {log_group_name!r}/{log_stream_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to put log events to {log_group_name!r}/{log_stream_name!r}"
         ) from exc
 
 
@@ -285,8 +318,8 @@ def get_log_events(
     try:
         resp = client.get_log_events(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to get log events from {log_group_name!r}/{log_stream_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to get log events from {log_group_name!r}/{log_stream_name!r}"
         ) from exc
 
     return [
@@ -345,8 +378,8 @@ def get_metric_statistics(
     try:
         resp = client.get_metric_statistics(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"get_metric_statistics failed for {namespace}/{metric_name}: {exc}"
+        raise wrap_aws_error(
+            exc, f"get_metric_statistics failed for {namespace}/{metric_name}"
         ) from exc
 
     return sorted(resp.get("Datapoints", []), key=lambda dp: dp["Timestamp"])
@@ -413,7 +446,7 @@ def create_alarm(
     try:
         client.put_metric_alarm(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"create_alarm failed for {alarm_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"create_alarm failed for {alarm_name!r}") from exc
 
 
 def tail_log_stream(
@@ -422,7 +455,7 @@ def tail_log_stream(
     poll_interval: float = 2.0,
     duration_seconds: float = 60.0,
     region_name: str | None = None,
-):
+) -> Generator[LogEvent, None, None]:
     """Tail a CloudWatch Logs stream and yield new log events as they arrive.
 
     Args:
@@ -436,20 +469,31 @@ def tail_log_stream(
     Yields:
         :class:`LogEvent` objects in arrival order.
     """
-    import time as _time
-
     client = get_client("logs", region_name)
     kwargs: dict = {
         "logGroupName": log_group_name,
         "logStreamName": log_stream_name,
         "startFromHead": False,
     }
-    deadline = _time.monotonic() + duration_seconds
+    deadline = time.monotonic() + duration_seconds
 
-    while _time.monotonic() < deadline:
+    while time.monotonic() < deadline:
         try:
             resp = client.get_log_events(**kwargs)
-        except ClientError:
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            logger.error(
+                "tail_log_stream error on %s/%s: %s",
+                log_group_name,
+                log_stream_name,
+                exc,
+            )
+            # Re-raise non-transient errors (e.g. permission issues).
+            if error_code in {"AccessDeniedException", "AccessDenied"}:
+                raise wrap_aws_error(
+                    exc,
+                    f"tail_log_stream denied for {log_group_name!r}/{log_stream_name!r}",
+                ) from exc
             break
 
         events = resp.get("events", [])
@@ -459,4 +503,4 @@ def tail_log_stream(
         next_token = resp.get("nextForwardToken")
         if next_token:
             kwargs["nextToken"] = next_token
-        _time.sleep(poll_interval)
+        time.sleep(poll_interval)

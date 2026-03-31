@@ -22,22 +22,23 @@ from aws_util.config_state import (
     ResolvedConfig,
     _is_expired,
 )
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "ResolvedConfig",
-    "DistributedLockResult",
-    "CheckpointResult",
     "AssumedRoleCredentials",
+    "CheckpointResult",
+    "DistributedLockResult",
     "EnvironmentSyncResult",
     "FeatureFlagResult",
-    "config_resolver",
-    "distributed_lock",
-    "state_machine_checkpoint",
-    "cross_account_role_assumer",
-    "environment_variable_sync",
+    "ResolvedConfig",
     "appconfig_feature_loader",
+    "config_resolver",
+    "cross_account_role_assumer",
+    "distributed_lock",
+    "environment_variable_sync",
+    "state_machine_checkpoint",
 ]
 
 
@@ -93,10 +94,8 @@ async def config_resolver(
             name = param["Name"]
             short = name[len(prefix) :] if name.startswith(prefix) else name
             parameters[short] = param["Value"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to load SSM parameters under {prefix}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to load SSM parameters under {prefix}") from exc
 
     # Load secrets
     secrets: dict[str, str] = {}
@@ -110,10 +109,8 @@ async def config_resolver(
                 if isinstance(parsed, dict):
                     for k, v in parsed.items():
                         secrets[k] = str(v)
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"Failed to load secret {secret_name!r}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to load secret {secret_name!r}") from exc
 
     # Merge: parameters first, secrets override
     merged = {**parameters, **secrets}
@@ -203,7 +200,7 @@ async def distributed_lock(
                     ttl=ttl_seconds,
                     message="Lock already held by another owner",
                 )
-            raise RuntimeError(f"Failed to acquire lock {lock_key!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to acquire lock {lock_key!r}") from exc
 
         logger.info(
             "Lock %r acquired by %s (TTL %ds)",
@@ -244,7 +241,7 @@ async def distributed_lock(
                 owner=owner,
                 message="Lock not owned by this owner",
             )
-        raise RuntimeError(f"Failed to release lock {lock_key!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to release lock {lock_key!r}") from exc
 
     logger.info("Lock %r released by %s", lock_key, owner)
     return DistributedLockResult(
@@ -307,10 +304,8 @@ async def state_machine_checkpoint(
                     "timestamp": {"N": str(int(time.time()))},
                 },
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to save checkpoint for {execution_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to save checkpoint for {execution_id!r}") from exc
 
         logger.info(
             "Checkpoint saved for %s at step %s",
@@ -331,10 +326,8 @@ async def state_machine_checkpoint(
             TableName=table_name,
             Key={"pk": {"S": pk}},
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to restore checkpoint for {execution_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to restore checkpoint for {execution_id!r}") from exc
 
     item = resp.get("Item")
     if item is None:
@@ -439,18 +432,16 @@ async def cross_account_role_assumer(
                 resp = await asyncio.to_thread(intermediate_sts.assume_role, **kwargs)
                 creds = resp["Credentials"]
             except Exception as exc:
-                raise RuntimeError(f"Failed to assume role {arn!r}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to assume role {arn!r}") from exc
         else:
             try:
                 resp = await sts.call("AssumeRole", **kwargs)
                 creds = resp["Credentials"]
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"Failed to assume role {arn!r}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to assume role {arn!r}") from exc
 
     # creds is guaranteed non-None since role_arns is non-empty
-    assert creds is not None  # noqa: S101
+    assert creds is not None
 
     expiration = creds["Expiration"]
     if hasattr(expiration, "isoformat"):
@@ -521,10 +512,8 @@ async def environment_variable_sync(
             # Convert path separators to underscores for env var names
             env_key = short.replace("/", "_").upper()
             desired[env_key] = param["Value"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to load SSM parameters under {prefix}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to load SSM parameters under {prefix}") from exc
 
     # Get current Lambda env vars
     try:
@@ -533,10 +522,8 @@ async def environment_variable_sync(
             FunctionName=function_name,
         )
         current = func_config.get("Environment", {}).get("Variables", {})
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to get config for {function_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get config for {function_name!r}") from exc
 
     # Detect changes
     added = [k for k in desired if k not in current]
@@ -561,10 +548,8 @@ async def environment_variable_sync(
             FunctionName=function_name,
             Environment={"Variables": merged},
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to update env vars for {function_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update env vars for {function_name!r}") from exc
 
     logger.info(
         "Synced env vars for %s: added=%s, changed=%s",
@@ -645,12 +630,10 @@ async def appconfig_feature_loader(
         if isinstance(content, str):
             content = content.encode("utf-8")
         version = resp.get("ConfigurationVersion", "")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to load feature flags from AppConfig "
-            f"({application}/{environment}/{profile}): {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"Failed to load feature flags from AppConfig ({application}/{environment}/{profile})",
         ) from exc
 
     try:

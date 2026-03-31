@@ -1,7 +1,6 @@
 """Native async cost_governance — cost governance utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 """
 
 from __future__ import annotations
@@ -10,7 +9,7 @@ import json
 import logging
 import math
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aws_util.aio._engine import async_client
@@ -23,14 +22,15 @@ from aws_util.cost_governance import (
     _mean,
     _stddev,
 )
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "AnomalyDetail",
     "CostAnomalyResult",
-    "SavingsPlanRecommendation",
     "SavingsPlanAnalysis",
+    "SavingsPlanRecommendation",
     "cost_anomaly_detector",
     "savings_plan_analyzer",
 ]
@@ -87,7 +87,7 @@ async def cost_anomaly_detector(
     """
     ce = async_client("ce", region_name=region_name)
 
-    end_date = datetime.now(tz=timezone.utc).date()
+    end_date = datetime.now(tz=UTC).date()
     start_date = end_date - timedelta(days=lookback_days)
 
     # ------------------------------------------------------------------
@@ -114,10 +114,8 @@ async def cost_anomaly_detector(
 
     try:
         resp = await ce.call("GetCostAndUsage", **ce_kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"cost_anomaly_detector GetCostAndUsage failed: {exc}") from exc
+        raise wrap_aws_error(exc, "cost_anomaly_detector GetCostAndUsage failed") from exc
 
     # ------------------------------------------------------------------
     # Build per-service time-series
@@ -179,14 +177,12 @@ async def cost_anomaly_detector(
                             "N": str(anomaly.deviation_sigma),
                         },
                         "detected_at": {
-                            "S": datetime.now(tz=timezone.utc).isoformat(),
+                            "S": datetime.now(tz=UTC).isoformat(),
                         },
                     },
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"cost_anomaly_detector DynamoDB PutItem failed: {exc}") from exc
+                raise wrap_aws_error(exc, "cost_anomaly_detector DynamoDB PutItem failed") from exc
 
     # ------------------------------------------------------------------
     # Publish CloudWatch custom metrics (optional)
@@ -195,7 +191,7 @@ async def cost_anomaly_detector(
     if cloudwatch_namespace:
         cw = async_client("cloudwatch", region_name=region_name)
         metric_data: list[dict[str, Any]] = []
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
 
         for svc, daily in service_costs.items():
             if daily:
@@ -232,10 +228,8 @@ async def cost_anomaly_detector(
                     MetricData=metric_data,
                 )
                 metrics_published = True
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"cost_anomaly_detector PutMetricData failed: {exc}") from exc
+                raise wrap_aws_error(exc, "cost_anomaly_detector PutMetricData failed") from exc
 
     # ------------------------------------------------------------------
     # Send SNS alert (optional)
@@ -261,10 +255,8 @@ async def cost_anomaly_detector(
                 Message=message,
             )
             alerts_sent = True
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"cost_anomaly_detector SNS Publish failed: {exc}") from exc
+            raise wrap_aws_error(exc, "cost_anomaly_detector SNS Publish failed") from exc
 
     logger.info(
         "cost_anomaly_detector: %d anomalies across %d services",
@@ -324,7 +316,7 @@ async def savings_plan_analyzer(
     """
     ce = async_client("ce", region_name=region_name)
 
-    end_date = datetime.now(tz=timezone.utc).date()
+    end_date = datetime.now(tz=UTC).date()
     start_date = end_date - timedelta(days=analysis_period_days)
 
     # ------------------------------------------------------------------
@@ -346,10 +338,8 @@ async def savings_plan_analyzer(
                 },
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"savings_plan_analyzer GetCostAndUsage failed: {exc}") from exc
+        raise wrap_aws_error(exc, "savings_plan_analyzer GetCostAndUsage failed") from exc
 
     total_on_demand = 0.0
     for result_by_time in usage_resp.get("ResultsByTime", []):
@@ -372,10 +362,8 @@ async def savings_plan_analyzer(
         if coverages:
             pcts = [float(c.get("Coverage", {}).get("CoveragePercentage", "0")) for c in coverages]
             existing_coverage_pct = _mean(pcts) if pcts else 0.0
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"savings_plan_analyzer GetSavingsPlansCoverage failed: {exc}") from exc
+        raise wrap_aws_error(exc, "savings_plan_analyzer GetSavingsPlansCoverage failed") from exc
 
     # ------------------------------------------------------------------
     # Coverage gap
@@ -432,7 +420,7 @@ async def savings_plan_analyzer(
     if s3_report_bucket:
         s3 = async_client("s3", region_name=region_name)
         prefix = s3_report_prefix or "savings-plan-reports"
-        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
         key = f"{prefix}/savings-plan-analysis-{ts}.json"
 
         report_body = {
@@ -455,10 +443,8 @@ async def savings_plan_analyzer(
                 ContentType="application/json",
             )
             report_s3_location = f"s3://{s3_report_bucket}/{key}"
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"savings_plan_analyzer S3 PutObject failed: {exc}") from exc
+            raise wrap_aws_error(exc, "savings_plan_analyzer S3 PutObject failed") from exc
 
     # ------------------------------------------------------------------
     # SNS notification (optional)
@@ -490,10 +476,8 @@ async def savings_plan_analyzer(
                 Subject="Savings Plan Analysis",
                 Message=msg,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"savings_plan_analyzer SNS Publish failed: {exc}") from exc
+            raise wrap_aws_error(exc, "savings_plan_analyzer SNS Publish failed") from exc
 
     logger.info(
         "savings_plan_analyzer: on-demand=$%.2f, coverage=%.1f%%, gap=$%.2f, %d recommendations",

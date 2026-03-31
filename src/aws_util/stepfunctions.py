@@ -9,6 +9,20 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "SFNExecution",
+    "StateMachine",
+    "describe_execution",
+    "get_execution_history",
+    "list_executions",
+    "list_state_machines",
+    "run_and_wait",
+    "start_execution",
+    "stop_execution",
+    "wait_for_execution",
+]
 
 _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"}
 
@@ -92,7 +106,7 @@ def start_execution(
     try:
         resp = client.start_execution(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to start execution for {state_machine_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start execution for {state_machine_arn!r}") from exc
     return SFNExecution(
         execution_arn=resp["executionArn"],
         state_machine_arn=state_machine_arn,
@@ -122,7 +136,7 @@ def describe_execution(
     try:
         resp = client.describe_execution(executionArn=execution_arn)
     except ClientError as exc:
-        raise RuntimeError(f"describe_execution failed for {execution_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_execution failed for {execution_arn!r}") from exc
     return _parse_execution(resp)
 
 
@@ -147,7 +161,7 @@ def stop_execution(
     try:
         client.stop_execution(executionArn=execution_arn, error=error, cause=cause)
     except ClientError as exc:
-        raise RuntimeError(f"stop_execution failed for {execution_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"stop_execution failed for {execution_arn!r}") from exc
 
 
 def list_executions(
@@ -190,7 +204,7 @@ def list_executions(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_executions failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_executions failed") from exc
     return executions
 
 
@@ -255,7 +269,7 @@ def list_state_machines(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_state_machines failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_state_machines failed") from exc
     return machines
 
 
@@ -363,5 +377,5 @@ def get_execution_history(
         for page in paginator.paginate(**kwargs):
             events.extend(page.get("events", []))
     except ClientError as exc:
-        raise RuntimeError(f"get_execution_history failed for {execution_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_execution_history failed for {execution_arn!r}") from exc
     return events

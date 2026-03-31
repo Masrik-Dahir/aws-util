@@ -120,6 +120,24 @@ async def test_publish_fan_out(monkeypatch):
     assert len(r) == 2
 
 
+async def test_publish_fan_out_partial_failure(monkeypatch):
+    """When one or more publishes fail, AwsServiceError is raised."""
+    call_count = 0
+
+    async def fake_call(op, **kw):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {"MessageId": "m1"}
+        raise RuntimeError("sns boom")
+
+    mc = AsyncMock()
+    mc.call = fake_call
+    monkeypatch.setattr("aws_util.aio.sns.async_client", lambda *a, **kw: mc)
+    with pytest.raises(RuntimeError, match="publish_fan_out failed"):
+        await publish_fan_out(["arn:t1", "arn:t2"], "msg")
+
+
 # -- create_topic_if_not_exists ----------------------------------------------
 
 async def test_create_topic_standard(monkeypatch):

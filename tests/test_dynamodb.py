@@ -386,11 +386,11 @@ def test_batch_write_writes_items(dynamodb_client):
 
 
 def test_transact_write_basic(dynamodb_client, monkeypatch):
-    """transact_write forwards operations to TransactWriteItems; mock boto3.resource."""
+    """transact_write forwards operations to TransactWriteItems via get_client."""
     from unittest.mock import MagicMock, patch
 
-    mock_resource = MagicMock()
-    mock_resource.meta.client.transact_write_items.return_value = {}
+    mock_client = MagicMock()
+    mock_client.transact_write_items.return_value = {}
     ops = [
         {
             "Put": {
@@ -399,9 +399,9 @@ def test_transact_write_basic(dynamodb_client, monkeypatch):
             }
         }
     ]
-    with patch("boto3.resource", return_value=mock_resource):
+    with patch("aws_util.dynamodb.get_client", return_value=mock_client):
         transact_write(ops, region_name=REGION)
-    mock_resource.meta.client.transact_write_items.assert_called_once()
+    mock_client.transact_write_items.assert_called_once()
 
 
 def test_transact_write_too_many_operations():
@@ -630,17 +630,17 @@ def test_batch_write_runtime_error(monkeypatch):
 
 
 def test_transact_write_runtime_error(monkeypatch):
-    """Covers ClientError in transact_write (lines 394-395)."""
+    """Covers ClientError in transact_write."""
     from unittest.mock import MagicMock, patch
     from botocore.exceptions import ClientError
 
-    mock_resource = MagicMock()
-    mock_resource.meta.client.transact_write_items.side_effect = ClientError(
+    mock_client = MagicMock()
+    mock_client.transact_write_items.side_effect = ClientError(
         {"Error": {"Code": "TransactionCanceledException", "Message": "cancelled"}},
         "TransactWriteItems",
     )
     ops = [{"Put": {"TableName": TABLE, "Item": {"pk": {"S": "x"}}}}]
-    with patch("boto3.resource", return_value=mock_resource):
+    with patch("aws_util.dynamodb.get_client", return_value=mock_client):
         with pytest.raises(RuntimeError, match="transact_write failed"):
             transact_write(ops, region_name=REGION)
 
@@ -651,7 +651,7 @@ def test_transact_write_runtime_error(monkeypatch):
 
 
 def test_transact_get_runtime_error(monkeypatch):
-    """Covers ClientError in transact_get (lines 432-433)."""
+    """Covers ClientError in transact_get."""
     from unittest.mock import patch, MagicMock
     from botocore.exceptions import ClientError
 
@@ -660,9 +660,7 @@ def test_transact_get_runtime_error(monkeypatch):
         {"Error": {"Code": "TransactionCanceledException", "Message": "cancelled"}},
         "TransactGetItems",
     )
-    mock_resource = MagicMock()
-    mock_resource.meta.client = mock_client
 
-    with patch("boto3.client", return_value=mock_client):
+    with patch("aws_util.dynamodb.get_client", return_value=mock_client):
         with pytest.raises(RuntimeError, match="transact_get failed"):
             transact_get([{"Get": {"TableName": TABLE, "Key": {"pk": {"S": "x"}}}}], region_name=REGION)

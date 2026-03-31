@@ -1,7 +1,6 @@
 """Native async resource_ops — multi-service resource management utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ import logging
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.resource_ops import (
     DLQReprocessResult,
     RotationResult,
@@ -24,16 +24,16 @@ __all__ = [
     "DLQReprocessResult",
     "RotationResult",
     "S3InventoryResult",
-    "reprocess_sqs_dlq",
     "backup_dynamodb_to_s3",
-    "sync_ssm_params_to_lambda_env",
-    "delete_stale_ecr_images",
-    "rebuild_athena_partitions",
-    "s3_inventory_to_dynamodb",
     "cross_account_s3_copy",
-    "rotate_secret_and_notify",
+    "delete_stale_ecr_images",
     "lambda_invoke_with_secret",
     "publish_s3_keys_to_sqs",
+    "rebuild_athena_partitions",
+    "reprocess_sqs_dlq",
+    "rotate_secret_and_notify",
+    "s3_inventory_to_dynamodb",
+    "sync_ssm_params_to_lambda_env",
 ]
 
 
@@ -101,7 +101,7 @@ async def reprocess_sqs_dlq(
                 except RuntimeError:
                     failed += 1
     except RuntimeError as exc:
-        raise RuntimeError(f"reprocess_sqs_dlq failed: {exc}") from exc
+        raise wrap_aws_error(exc, "reprocess_sqs_dlq failed") from exc
 
     return DLQReprocessResult(reprocessed=reprocessed, failed=failed, total_read=total_read)
 
@@ -143,14 +143,14 @@ async def backup_dynamodb_to_s3(
             TableName=table_name,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"backup_dynamodb_to_s3 scan failed on {table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"backup_dynamodb_to_s3 scan failed on {table_name!r}") from exc
 
     body = "\n".join(json.dumps(item) for item in items)
     try:
         await s3.call("PutObject", Bucket=s3_bucket, Key=s3_key, Body=body.encode())
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"backup_dynamodb_to_s3 upload failed to s3://{s3_bucket}/{s3_key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"backup_dynamodb_to_s3 upload failed to s3://{s3_bucket}/{s3_key}"
         ) from exc
 
     return s3_key
@@ -198,7 +198,7 @@ async def sync_ssm_params_to_lambda_env(
             key = p["Name"].split("/")[-1].upper()
             params[key] = p["Value"]
     except RuntimeError as exc:
-        raise RuntimeError(f"sync_ssm_params_to_lambda_env SSM fetch failed: {exc}") from exc
+        raise wrap_aws_error(exc, "sync_ssm_params_to_lambda_env SSM fetch failed") from exc
 
     try:
         cfg = await lam.call("GetFunctionConfiguration", FunctionName=function_name)
@@ -210,7 +210,7 @@ async def sync_ssm_params_to_lambda_env(
             Environment={"Variables": env},
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"sync_ssm_params_to_lambda_env Lambda update failed: {exc}") from exc
+        raise wrap_aws_error(exc, "sync_ssm_params_to_lambda_env Lambda update failed") from exc
 
     return env
 
@@ -249,7 +249,7 @@ async def delete_stale_ecr_images(
             repositoryName=repository_name,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"delete_stale_ecr_images list failed: {exc}") from exc
+        raise wrap_aws_error(exc, "delete_stale_ecr_images list failed") from exc
 
     all_images.sort(key=lambda img: img.get("imagePushedAt", 0), reverse=True)
     stale = all_images[keep_count:]
@@ -264,7 +264,7 @@ async def delete_stale_ecr_images(
             imageIds=image_ids,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"delete_stale_ecr_images batch_delete failed: {exc}") from exc
+        raise wrap_aws_error(exc, "delete_stale_ecr_images batch_delete failed") from exc
 
     deleted = [img["imageDigest"] for img in stale]
 
@@ -323,7 +323,7 @@ async def rebuild_athena_partitions(
         )
         qid = resp["QueryExecutionId"]
     except RuntimeError as exc:
-        raise RuntimeError(f"rebuild_athena_partitions start failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rebuild_athena_partitions start failed") from exc
 
     def _check(r: dict[str, Any]) -> bool:
         state = r["QueryExecution"]["Status"]["State"]
@@ -331,7 +331,7 @@ async def rebuild_athena_partitions(
             return True
         if state in ("FAILED", "CANCELLED"):
             reason = r["QueryExecution"]["Status"].get("StateChangeReason", "unknown")
-            raise RuntimeError(f"rebuild_athena_partitions query {state}: {reason}")
+            raise AwsServiceError(f"rebuild_athena_partitions query {state}: {reason}")
         return False
 
     try:
@@ -393,7 +393,7 @@ async def s3_inventory_to_dynamodb(
             **kwargs,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"s3_inventory_to_dynamodb list failed: {exc}") from exc
+        raise wrap_aws_error(exc, "s3_inventory_to_dynamodb list failed") from exc
 
     for obj in objects:
         item = {
@@ -411,7 +411,7 @@ async def s3_inventory_to_dynamodb(
             await dynamo.call("PutItem", TableName=table_name, Item=item)
             items_written += 1
         except RuntimeError as exc:
-            raise RuntimeError(f"s3_inventory_to_dynamodb write failed: {exc}") from exc
+            raise wrap_aws_error(exc, "s3_inventory_to_dynamodb write failed") from exc
 
     return S3InventoryResult(bucket=bucket_name, items_written=items_written, prefix=prefix)
 
@@ -459,7 +459,7 @@ async def cross_account_s3_copy(
         )
         creds = creds_resp["Credentials"]
     except RuntimeError as exc:
-        raise RuntimeError(f"cross_account_s3_copy assume_role failed: {exc}") from exc
+        raise wrap_aws_error(exc, "cross_account_s3_copy assume_role failed") from exc
 
     try:
         data_resp = await s3_source.call("GetObject", Bucket=source_bucket, Key=source_key)
@@ -467,7 +467,7 @@ async def cross_account_s3_copy(
         if hasattr(data, "read"):
             data = data.read()
     except RuntimeError as exc:
-        raise RuntimeError(f"cross_account_s3_copy get_object failed: {exc}") from exc
+        raise wrap_aws_error(exc, "cross_account_s3_copy get_object failed") from exc
 
     # For the destination upload we use asyncio.to_thread with boto3
     # since we need temporary credentials for a different account.
@@ -486,7 +486,7 @@ async def cross_account_s3_copy(
     try:
         await asyncio.to_thread(_upload)
     except Exception as exc:
-        raise RuntimeError(f"cross_account_s3_copy put_object failed: {exc}") from exc
+        raise wrap_aws_error(exc, "cross_account_s3_copy put_object failed") from exc
 
     return dest_key
 
@@ -529,7 +529,7 @@ async def rotate_secret_and_notify(
             kwargs["RotationRules"] = {"AutomaticallyAfterDays": 30}
         await sm.call("RotateSecret", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"rotate_secret_and_notify rotation failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rotate_secret_and_notify rotation failed") from exc
 
     try:
         resp = await sns.call(
@@ -540,7 +540,7 @@ async def rotate_secret_and_notify(
         )
         message_id = resp.get("MessageId")
     except RuntimeError as exc:
-        raise RuntimeError(f"rotate_secret_and_notify SNS publish failed: {exc}") from exc
+        raise wrap_aws_error(exc, "rotate_secret_and_notify SNS publish failed") from exc
 
     return RotationResult(
         secret_id=secret_id,
@@ -582,7 +582,7 @@ async def lambda_invoke_with_secret(
         secret_value = await sm.call("GetSecretValue", SecretId=secret_id)
         raw = secret_value.get("SecretString") or secret_value.get("SecretBinary", b"").decode()
     except RuntimeError as exc:
-        raise RuntimeError(f"lambda_invoke_with_secret get_secret failed: {exc}") from exc
+        raise wrap_aws_error(exc, "lambda_invoke_with_secret get_secret failed") from exc
 
     try:
         payload = json.loads(raw) if isinstance(raw, str) else raw
@@ -610,7 +610,7 @@ async def lambda_invoke_with_secret(
         else:
             result_payload = None
     except RuntimeError as exc:
-        raise RuntimeError(f"lambda_invoke_with_secret invoke failed: {exc}") from exc
+        raise wrap_aws_error(exc, "lambda_invoke_with_secret invoke failed") from exc
 
     return {"status_code": resp["StatusCode"], "payload": result_payload}
 
@@ -662,7 +662,7 @@ async def publish_s3_keys_to_sqs(
         )
         keys: list[str] = [obj["Key"] for obj in objects]
     except RuntimeError as exc:
-        raise RuntimeError(f"publish_s3_keys_to_sqs list failed: {exc}") from exc
+        raise wrap_aws_error(exc, "publish_s3_keys_to_sqs list failed") from exc
 
     effective_batch = min(batch_size, 10)
     for i in range(0, len(keys), effective_batch):
@@ -678,6 +678,6 @@ async def publish_s3_keys_to_sqs(
             resp = await sqs.call("SendMessageBatch", QueueUrl=queue_url, Entries=entries)
             sent += len(resp.get("Successful", []))
         except RuntimeError as exc:
-            raise RuntimeError(f"publish_s3_keys_to_sqs send_batch failed: {exc}") from exc
+            raise wrap_aws_error(exc, "publish_s3_keys_to_sqs send_batch failed") from exc
 
     return sent

@@ -7,6 +7,21 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "TextractBlock",
+    "TextractJobResult",
+    "analyze_document",
+    "detect_document_text",
+    "extract_all",
+    "extract_form_fields",
+    "extract_tables",
+    "extract_text",
+    "get_document_text_detection",
+    "start_document_text_detection",
+    "wait_for_document_text_detection",
+]
 
 _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "PARTIAL_SUCCESS"}
 
@@ -79,7 +94,7 @@ def detect_document_text(
     try:
         resp = client.detect_document_text(Document=document)
     except ClientError as exc:
-        raise RuntimeError(f"detect_document_text failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_document_text failed") from exc
     return _parse_blocks(resp.get("Blocks", []))
 
 
@@ -116,7 +131,7 @@ def analyze_document(
             FeatureTypes=feature_types or ["TABLES", "FORMS"],
         )
     except ClientError as exc:
-        raise RuntimeError(f"analyze_document failed: {exc}") from exc
+        raise wrap_aws_error(exc, "analyze_document failed") from exc
     return _parse_blocks(resp.get("Blocks", []))
 
 
@@ -153,8 +168,8 @@ def start_document_text_detection(
     try:
         resp = client.start_document_text_detection(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(
-            f"start_document_text_detection failed for s3://{s3_bucket}/{s3_key}: {exc}"
+        raise wrap_aws_error(
+            exc, f"start_document_text_detection failed for s3://{s3_bucket}/{s3_key}"
         ) from exc
     return resp["JobId"]
 
@@ -193,7 +208,7 @@ def get_document_text_detection(
                 break
             kwargs["NextToken"] = next_token
     except ClientError as exc:
-        raise RuntimeError(f"get_document_text_detection failed for job {job_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_document_text_detection failed for job {job_id!r}") from exc
     return TextractJobResult(
         job_id=job_id,
         status=status,

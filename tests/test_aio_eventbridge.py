@@ -181,8 +181,10 @@ async def test_put_events_partial_failure(
     monkeypatch.setattr(
         "aws_util.aio.eventbridge.async_client", lambda *a, **kw: mock
     )
-    with pytest.raises(RuntimeError, match="1 event\\(s\\) failed"):
-        await put_events([_make_entry(), _make_entry()])
+    # Partial failures return a result (only ALL-fail raises)
+    result = await put_events([_make_entry(), _make_entry()])
+    assert result.failed_count == 1
+    assert result.successful_count == 1
 
 
 async def test_put_events_zero_failed_no_error(
@@ -332,6 +334,26 @@ async def test_list_rules_custom_bus(
     mock.paginate.assert_awaited_once_with(
         "ListRules", "Rules", EventBusName="custom-bus"
     )
+
+
+async def test_put_events_all_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ALL events fail (failed > 0, successful == 0), raise AwsServiceError."""
+    mock = _mock_client(
+        {
+            "FailedEntryCount": 2,
+            "Entries": [
+                {"ErrorCode": "InternalError", "ErrorMessage": "boom"},
+                {"ErrorCode": "InternalError", "ErrorMessage": "boom2"},
+            ],
+        }
+    )
+    monkeypatch.setattr(
+        "aws_util.aio.eventbridge.async_client", lambda *a, **kw: mock
+    )
+    with pytest.raises(RuntimeError, match="All 2 event"):
+        await put_events([_make_entry(), _make_entry()])
 
 
 async def test_list_rules_error(

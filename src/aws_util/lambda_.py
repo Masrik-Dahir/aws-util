@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import base64
 import json
+import time as _time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Literal
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "InvokeResult",
+    "fan_out",
+    "invoke",
+    "invoke_async",
+    "invoke_with_retry",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -85,15 +97,13 @@ def invoke(
     try:
         resp = client.invoke(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to invoke Lambda {function_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to invoke Lambda {function_name!r}") from exc
 
     raw_response = resp["Payload"].read()
     try:
         parsed_payload: Any = json.loads(raw_response) if raw_response else None
     except json.JSONDecodeError:
         parsed_payload = raw_response.decode("utf-8")
-
-    import base64
 
     log_result: str | None = None
     if resp.get("LogResult"):
@@ -168,8 +178,6 @@ def invoke_with_retry(
     Raises:
         RuntimeError: If all attempts fail.
     """
-    import time as _time
-
     last_exc: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
@@ -179,6 +187,10 @@ def invoke_with_retry(
                 qualifier=qualifier,
                 region_name=region_name,
             )
+            # Function-level errors are not retried — they indicate
+            # application logic failures, not transient API problems.
+            if result.function_error is not None:
+                return result
             return result
         except RuntimeError as exc:
             last_exc = exc
@@ -186,9 +198,9 @@ def invoke_with_retry(
                 sleep_time = backoff_base * (2**attempt)
                 _time.sleep(sleep_time)
 
-    raise RuntimeError(
-        f"invoke_with_retry: all {max_retries + 1} attempts failed for "
-        f"{function_name!r}. Last error: {last_exc}"
+    raise wrap_aws_error(
+        last_exc,  # type: ignore[arg-type]
+        f"invoke_with_retry: all {max_retries + 1} attempts failed for {function_name!r}",
     ) from last_exc
 
 
@@ -218,9 +230,7 @@ def fan_out(
     Raises:
         RuntimeError: If any invocation raises unexpectedly.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    results: list[InvokeResult | None] = [None] * len(payloads)
+    results: dict[int, InvokeResult] = {}
 
     def _invoke(index: int, p: dict | list | str | None) -> tuple[int, InvokeResult]:
         return index, invoke(function_name, payload=p, qualifier=qualifier, region_name=region_name)
@@ -231,4 +241,4 @@ def fan_out(
             idx, result = future.result()
             results[idx] = result
 
-    return results  # type: ignore[return-value]
+    return [results[i] for i in range(len(payloads))]

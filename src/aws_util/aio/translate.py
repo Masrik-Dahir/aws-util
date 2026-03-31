@@ -6,14 +6,15 @@ import asyncio
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.translate import TranslateLanguage, TranslateResult
 
 __all__ = [
-    "TranslateResult",
     "TranslateLanguage",
-    "translate_text",
-    "translate_batch",
+    "TranslateResult",
     "list_languages",
+    "translate_batch",
+    "translate_text",
 ]
 
 
@@ -52,8 +53,8 @@ async def translate_text(
         kwargs["TerminologyNames"] = terminology_names
     try:
         resp = await client.call("TranslateText", **kwargs)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to translate text to {target_language_code!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to translate text to {target_language_code!r}") from exc
     return TranslateResult(
         translated_text=resp["TranslatedText"],
         source_language_code=resp["SourceLanguageCode"],
@@ -140,6 +141,6 @@ async def list_languages(
             if not next_token:
                 break
             kwargs["NextToken"] = next_token
-    except RuntimeError as exc:
-        raise RuntimeError(f"list_languages failed: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "list_languages failed") from exc
     return languages

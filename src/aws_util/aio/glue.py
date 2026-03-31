@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.glue import GlueJob, GlueJobRun
 
 _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "TIMEOUT", "STOPPED", "ERROR"}
@@ -14,14 +15,14 @@ _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "TIMEOUT", "STOPPED", "ERROR"}
 __all__ = [
     "GlueJob",
     "GlueJobRun",
-    "start_job_run",
-    "get_job_run",
     "get_job",
-    "list_jobs",
+    "get_job_run",
     "list_job_runs",
-    "wait_for_job_run",
+    "list_jobs",
     "run_job_and_wait",
+    "start_job_run",
     "stop_job_run",
+    "wait_for_job_run",
 ]
 
 
@@ -84,7 +85,7 @@ async def start_job_run(
     try:
         resp = await client.call("StartJobRun", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to start Glue job {job_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start Glue job {job_name!r}") from exc
     return resp["JobRunId"]
 
 
@@ -110,7 +111,7 @@ async def get_job_run(
     try:
         resp = await client.call("GetJobRun", JobName=job_name, RunId=run_id)
     except RuntimeError as exc:
-        raise RuntimeError(f"get_job_run failed for {job_name!r}/{run_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_job_run failed for {job_name!r}/{run_id!r}") from exc
     return _parse_run(resp["JobRun"])
 
 
@@ -134,7 +135,7 @@ async def get_job(
     try:
         resp = await client.call("GetJob", JobName=job_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"get_job failed for {job_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_job failed for {job_name!r}") from exc
     job = resp["Job"]
     return GlueJob(
         job_name=job["Name"],
@@ -166,7 +167,7 @@ async def list_jobs(
     try:
         items = await client.paginate("GetJobs", "Jobs")
     except RuntimeError as exc:
-        raise RuntimeError(f"list_jobs failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_jobs failed") from exc
     return [job["Name"] for job in items]
 
 
@@ -190,7 +191,7 @@ async def list_job_runs(
     try:
         items = await client.paginate("GetJobRuns", "JobRuns", JobName=job_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"list_job_runs failed for {job_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"list_job_runs failed for {job_name!r}") from exc
     return [_parse_run(r) for r in items]
 
 
@@ -299,4 +300,4 @@ async def stop_job_run(
             JobRunIds=[run_id],
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"stop_job_run failed for {job_name!r}/{run_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"stop_job_run failed for {job_name!r}/{run_id!r}") from exc

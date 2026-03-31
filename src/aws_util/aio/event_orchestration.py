@@ -1,7 +1,6 @@
 """Native async event_orchestration — event-driven orchestration utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 """
 
 from __future__ import annotations
@@ -24,33 +23,34 @@ from aws_util.event_orchestration import (
     ScheduleResult,
     WorkflowResult,
 )
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "EventBridgeRuleResult",
+    "EventReplayResult",
+    "EventSourceMappingResult",
+    "FanOutResult",
+    "PipeResult",
+    "SagaResult",
+    "SagaStepResult",
     "ScheduleResult",
     "WorkflowResult",
-    "SagaStepResult",
-    "SagaResult",
-    "FanOutResult",
-    "EventReplayResult",
-    "PipeResult",
-    "EventSourceMappingResult",
     "create_eventbridge_rule",
-    "put_eventbridge_targets",
-    "delete_eventbridge_rule",
-    "create_schedule",
-    "delete_schedule",
-    "run_workflow",
-    "saga_orchestrator",
-    "fan_out_fan_in",
-    "start_event_replay",
-    "describe_event_replay",
     "create_pipe",
-    "delete_pipe",
+    "create_schedule",
     "create_sqs_event_source_mapping",
     "delete_event_source_mapping",
+    "delete_eventbridge_rule",
+    "delete_pipe",
+    "delete_schedule",
+    "describe_event_replay",
+    "fan_out_fan_in",
+    "put_eventbridge_targets",
+    "run_workflow",
+    "saga_orchestrator",
+    "start_event_replay",
 ]
 
 
@@ -104,7 +104,7 @@ async def create_eventbridge_rule(
     try:
         resp = await client.call("PutRule", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create EventBridge rule {rule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create EventBridge rule {rule_name!r}") from exc
 
     return EventBridgeRuleResult(
         rule_name=rule_name,
@@ -144,12 +144,12 @@ async def put_eventbridge_targets(
             Targets=targets,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to put targets on rule {rule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to put targets on rule {rule_name!r}") from exc
 
     failed = resp.get("FailedEntryCount", 0)
     if failed > 0:
         entries = resp.get("FailedEntries", [])
-        raise RuntimeError(f"Failed to add {failed} target(s) to {rule_name!r}: {entries}")
+        raise AwsServiceError(f"Failed to add {failed} target(s) to {rule_name!r}: {entries}")
 
     return len(targets)
 
@@ -202,7 +202,7 @@ async def delete_eventbridge_rule(
     try:
         await client.call("DeleteRule", Name=rule_name, EventBusName=event_bus_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete EventBridge rule {rule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete EventBridge rule {rule_name!r}") from exc
 
     return EventBridgeRuleResult(rule_name=rule_name, action="deleted")
 
@@ -267,7 +267,7 @@ async def create_schedule(
             State=state,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create schedule {schedule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create schedule {schedule_name!r}") from exc
 
     return ScheduleResult(
         schedule_name=schedule_name,
@@ -292,7 +292,7 @@ async def delete_schedule(
     try:
         await client.call("DeleteSchedule", Name=schedule_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete schedule {schedule_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete schedule {schedule_name!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +339,7 @@ async def run_workflow(
     try:
         resp = await client.call("StartExecution", **start_kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to start execution for {state_machine_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start execution for {state_machine_arn!r}") from exc
 
     execution_arn = resp["executionArn"]
     deadline = time.monotonic() + timeout
@@ -348,7 +348,7 @@ async def run_workflow(
         try:
             desc = await client.call("DescribeExecution", executionArn=execution_arn)
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to describe execution {execution_arn!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to describe execution {execution_arn!r}") from exc
 
         status = desc["status"]
         if status in (
@@ -421,7 +421,7 @@ async def saga_orchestrator(
             func_error = resp.get("FunctionError")
 
             if func_error:
-                raise RuntimeError(
+                raise AwsServiceError(
                     f"Function error: "
                     f"{resp_payload.decode() if isinstance(resp_payload, bytes) else resp_payload}"
                 )
@@ -532,7 +532,7 @@ async def fan_out_fan_in(
                     resp["Failed"],
                 )
         except RuntimeError as exc:
-            raise RuntimeError(f"Fan-out send failed: {exc}") from exc
+            raise wrap_aws_error(exc, "Fan-out send failed") from exc
 
     if result_table:
         ddb = async_client("dynamodb", region_name)
@@ -592,7 +592,7 @@ async def start_event_replay(
             EventEndTime=end_time,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to start replay {replay_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start replay {replay_name!r}") from exc
 
     return EventReplayResult(
         replay_name=replay_name,
@@ -621,7 +621,7 @@ async def describe_event_replay(
     try:
         resp = await client.call("DescribeReplay", ReplayName=replay_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to describe replay {replay_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe replay {replay_name!r}") from exc
 
     return EventReplayResult(
         replay_name=replay_name,
@@ -687,7 +687,7 @@ async def create_pipe(
     try:
         resp = await client.call("CreatePipe", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create pipe {pipe_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create pipe {pipe_name!r}") from exc
 
     return PipeResult(
         pipe_name=pipe_name,
@@ -713,7 +713,7 @@ async def delete_pipe(
     try:
         await client.call("DeletePipe", Name=pipe_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete pipe {pipe_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete pipe {pipe_name!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -762,8 +762,8 @@ async def create_sqs_event_source_mapping(
     try:
         resp = await client.call("CreateEventSourceMapping", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to create event source mapping for {function_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to create event source mapping for {function_name!r}"
         ) from exc
 
     return EventSourceMappingResult(
@@ -792,4 +792,4 @@ async def delete_event_source_mapping(
     try:
         await client.call("DeleteEventSourceMapping", UUID=uuid)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete event source mapping {uuid!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete event source mapping {uuid!r}") from exc

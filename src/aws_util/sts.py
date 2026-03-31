@@ -2,10 +2,22 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import boto3
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "AssumedRoleCredentials",
+    "CallerIdentity",
+    "assume_role",
+    "assume_role_session",
+    "get_account_id",
+    "get_caller_identity",
+    "is_valid_account_id",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -59,7 +71,7 @@ def get_caller_identity(
     try:
         resp = client.get_caller_identity()
     except ClientError as exc:
-        raise RuntimeError(f"get_caller_identity failed: {exc}") from exc
+        raise wrap_aws_error(exc, "get_caller_identity failed") from exc
     return CallerIdentity(
         account_id=resp["Account"],
         arn=resp["Arn"],
@@ -115,7 +127,7 @@ def assume_role(
     try:
         resp = client.assume_role(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to assume role {role_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to assume role {role_arn!r}") from exc
 
     creds = resp["Credentials"]
     return AssumedRoleCredentials(
@@ -137,7 +149,7 @@ def assume_role_session(
     duration_seconds: int = 3600,
     external_id: str | None = None,
     region_name: str | None = None,
-):
+) -> boto3.Session:
     """Assume an IAM role and return a ready-to-use boto3 Session.
 
     Combines :func:`assume_role` with ``boto3.Session`` construction so
@@ -158,8 +170,6 @@ def assume_role_session(
     Raises:
         RuntimeError: If the assume-role call fails.
     """
-    import boto3
-
     creds = assume_role(
         role_arn,
         session_name,
@@ -172,7 +182,7 @@ def assume_role_session(
         "aws_secret_access_key": creds.secret_access_key,
         "aws_session_token": creds.session_token,
     }
-    if region_name:
+    if region_name is not None:
         kwargs["region_name"] = region_name
     return boto3.Session(**kwargs)
 

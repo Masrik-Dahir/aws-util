@@ -8,6 +8,7 @@ Lambda warmer, config drift detector, rollback manager, and package builder.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import json
 import logging
@@ -30,27 +31,28 @@ from aws_util.deployment import (
     RollbackResult,
     StackDeployResult,
 )
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "CanaryDeployResult",
-    "LayerPublishResult",
-    "StackDeployResult",
+    "DriftDetectionResult",
+    "DriftReport",
     "EnvironmentPromoteResult",
     "LambdaWarmerResult",
-    "DriftReport",
-    "DriftDetectionResult",
-    "RollbackResult",
+    "LayerPublishResult",
     "PackageBuildResult",
+    "RollbackResult",
+    "StackDeployResult",
+    "config_drift_detector",
+    "environment_promoter",
     "lambda_canary_deploy",
     "lambda_layer_publisher",
-    "stack_deployer",
-    "environment_promoter",
-    "lambda_warmer",
-    "config_drift_detector",
-    "rollback_manager",
     "lambda_package_builder",
+    "lambda_warmer",
+    "rollback_manager",
+    "stack_deployer",
 ]
 
 
@@ -102,10 +104,8 @@ async def lambda_canary_deploy(
             FunctionName=function_name,
         )
         new_version = publish_resp["Version"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to publish version for {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to publish version for {function_name}") from exc
 
     # Get current alias to find the original version
     try:
@@ -126,10 +126,8 @@ async def lambda_canary_deploy(
                 Name=alias_name,
                 FunctionVersion=new_version,
             )
-        except RuntimeError:
-            raise
         except Exception as create_exc:
-            raise RuntimeError(f"Failed to create alias {alias_name}: {create_exc}") from create_exc
+            raise wrap_aws_error(create_exc, f"Failed to create alias {alias_name}") from create_exc
         return CanaryDeployResult(
             function_name=function_name,
             new_version=new_version,
@@ -157,10 +155,8 @@ async def lambda_canary_deploy(
             if routing_config:
                 update_kwargs["RoutingConfig"] = routing_config
             await lam.call("UpdateAlias", **update_kwargs)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to update alias {alias_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to update alias {alias_name}") from exc
 
         # Check alarms
         if alarm_names and weight < 1.0:
@@ -191,10 +187,8 @@ async def lambda_canary_deploy(
                             final_weight=weight,
                             rolled_back=True,
                         )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"Failed to check alarms: {exc}") from exc
+                raise wrap_aws_error(exc, "Failed to check alarms") from exc
 
     return CanaryDeployResult(
         function_name=function_name,
@@ -253,7 +247,7 @@ async def lambda_layer_publisher(
                         )
                         zf.write(full_path, arcname)
         except OSError as exc:
-            raise RuntimeError(f"Failed to package directory {directory}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to package directory {directory}") from exc
         return buf.getvalue()
 
     zip_bytes = await asyncio.to_thread(_build_zip)
@@ -274,10 +268,8 @@ async def lambda_layer_publisher(
         )
         version_number = resp["Version"]
         layer_arn = resp["LayerVersionArn"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to publish layer {layer_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to publish layer {layer_name}") from exc
 
     # Update functions to use the new layer
     updated_functions: list[str] = []
@@ -409,10 +401,8 @@ async def stack_deployer(
         cs_resp = await cfn.call("CreateChangeSet", **cs_kwargs)
         change_set_id = cs_resp["Id"]
         stack_id = cs_resp["StackId"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create change set for {stack_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create change set for {stack_name}") from exc
 
     # Wait for change set to be ready
     deadline = time.time() + timeout_seconds
@@ -428,13 +418,11 @@ async def stack_deployer(
             if status == "FAILED":
                 reason = desc.get("StatusReason", "Unknown")
                 if "didn't contain changes" in reason.lower() or "no updates" in reason.lower():
-                    try:
+                    with contextlib.suppress(RuntimeError):
                         await cfn.call(
                             "DeleteChangeSet",
                             ChangeSetName=change_set_id,
                         )
-                    except RuntimeError:
-                        pass
                     outputs = await _get_stack_outputs(
                         cfn,
                         stack_name,
@@ -446,11 +434,9 @@ async def stack_deployer(
                         outputs=outputs,
                         change_set_id=change_set_id,
                     )
-                raise RuntimeError(f"Change set failed: {reason}")
-        except RuntimeError:
-            raise
+                raise AwsServiceError(f"Change set failed: {reason}")
         except Exception as exc:
-            raise RuntimeError(f"Failed to describe change set: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to describe change set") from exc
         await asyncio.sleep(2)
     else:
         raise TimeoutError(
@@ -463,10 +449,8 @@ async def stack_deployer(
             "ExecuteChangeSet",
             ChangeSetName=change_set_id,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to execute change set for {stack_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to execute change set for {stack_name}") from exc
 
     # Wait for stack to reach terminal state
     while time.time() < deadline:
@@ -477,14 +461,14 @@ async def stack_deployer(
             )
             stacks = stack_desc["Stacks"]
             if not stacks:
-                raise RuntimeError(f"Stack {stack_name} not found")
+                raise AwsServiceError(f"Stack {stack_name} not found")
             stack_status = stacks[0].get(
                 "StackStatus",
                 stacks[0].get("Status", ""),
             )
             if stack_status.endswith("_COMPLETE"):
                 if "ROLLBACK" in stack_status:
-                    raise RuntimeError(f"Stack {stack_name} rolled back: {stack_status}")
+                    raise AwsServiceError(f"Stack {stack_name} rolled back: {stack_status}")
                 outputs = await _get_stack_outputs(
                     cfn,
                     stack_name,
@@ -497,11 +481,9 @@ async def stack_deployer(
                     change_set_id=change_set_id,
                 )
             if stack_status.endswith("_FAILED"):
-                raise RuntimeError(f"Stack {stack_name} failed: {stack_status}")
-        except RuntimeError:
-            raise
+                raise AwsServiceError(f"Stack {stack_name} failed: {stack_status}")
         except Exception as exc:
-            raise RuntimeError(f"Failed to describe stack {stack_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to describe stack {stack_name}") from exc
         await asyncio.sleep(2)
 
     raise TimeoutError(f"Stack {stack_name} did not complete within {timeout_seconds}s")
@@ -555,10 +537,8 @@ async def environment_promoter(
             "GetFunctionConfiguration",
             FunctionName=source_func,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to get config for {source_func}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get config for {source_func}") from exc
 
     env_vars = src_config.get("Environment", {}).get("Variables", {})
     if extra_env_vars:
@@ -591,10 +571,8 @@ async def environment_promoter(
                 Timeout=src_config.get("Timeout", 30),
                 MemorySize=src_config.get("MemorySize", 128),
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to promote to {target_func}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to promote to {target_func}") from exc
 
         # Alias handling for cross-account
         alias_created = False
@@ -629,8 +607,8 @@ async def environment_promoter(
                     )
                     alias_created = True
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to create alias {alias_name} on {target_func}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to create alias {alias_name} on {target_func}"
                 ) from exc
     else:
         target_lam = async_client("lambda", tgt_region)
@@ -642,10 +620,8 @@ async def environment_promoter(
                 Timeout=src_config.get("Timeout", 30),
                 MemorySize=src_config.get("MemorySize", 128),
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to update config for {target_func}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to update config for {target_func}") from exc
 
         alias_created = False
         if alias_name:
@@ -678,11 +654,9 @@ async def environment_promoter(
                         FunctionVersion=publish_resp["Version"],
                     )
                     alias_created = True
-                except RuntimeError:
-                    raise
                 except Exception as exc:
-                    raise RuntimeError(
-                        f"Failed to create alias {alias_name} on {target_func}: {exc}"
+                    raise wrap_aws_error(
+                        exc, f"Failed to create alias {alias_name} on {target_func}"
                     ) from exc
 
     return EnvironmentPromoteResult(
@@ -736,10 +710,8 @@ async def lambda_warmer(
             FunctionName=function_name,
         )
         function_arn = fn_config["FunctionArn"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to get function {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get function {function_name}") from exc
 
     # Create or update rule
     try:
@@ -750,10 +722,8 @@ async def lambda_warmer(
             State="ENABLED",
         )
         rule_arn = rule_resp["RuleArn"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create rule {rule_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create rule {rule_name}") from exc
 
     # Add Lambda permission for EventBridge
     try:
@@ -781,10 +751,8 @@ async def lambda_warmer(
                 },
             ],
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to add target for rule {rule_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to add target for rule {rule_name}") from exc
 
     return LambdaWarmerResult(
         function_name=function_name,
@@ -847,10 +815,8 @@ async def config_drift_detector(
                     desired[key] = json.loads(param["Value"])
                 except (json.JSONDecodeError, TypeError):
                     desired[key] = param["Value"]
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to load desired state from SSM: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to load desired state from SSM") from exc
 
     if desired_state_s3:
         s3 = async_client("s3", region_name)
@@ -867,10 +833,8 @@ async def config_drift_detector(
                 body = body.decode("utf-8")
             s3_desired = json.loads(body)
             desired.update(s3_desired)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to load desired state from S3: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to load desired state from S3") from exc
 
     # Check Lambda functions
     if function_names:
@@ -882,10 +846,8 @@ async def config_drift_detector(
                     "GetFunctionConfiguration",
                     FunctionName=fn_name,
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"Failed to get config for {fn_name}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to get config for {fn_name}") from exc
 
             fn_desired = desired.get(fn_name, {})
             if isinstance(fn_desired, dict):
@@ -944,24 +906,21 @@ async def config_drift_detector(
                     "GetRestApi",
                     restApiId=api_id,
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(f"Failed to get API {api_id}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to get API {api_id}") from exc
 
             api_desired = desired.get(api_id, {})
             if isinstance(api_desired, dict):
-                if "name" in api_desired:
-                    if api["name"] != api_desired["name"]:
-                        drift_items.append(
-                            DriftReport(
-                                resource_type="APIGateway",
-                                resource_name=api_id,
-                                property_name="name",
-                                expected=str(api_desired["name"]),
-                                actual=str(api["name"]),
-                            )
+                if "name" in api_desired and api["name"] != api_desired["name"]:
+                    drift_items.append(
+                        DriftReport(
+                            resource_type="APIGateway",
+                            resource_name=api_id,
+                            property_name="name",
+                            expected=str(api_desired["name"]),
+                            actual=str(api["name"]),
                         )
+                    )
                 if "description" in api_desired:
                     actual_desc = api.get("description", "")
                     if actual_desc != api_desired["description"]:
@@ -1020,10 +979,8 @@ async def rollback_manager(
             FunctionName=function_name,
             Name=alias_name,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to get alias {alias_name} for {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get alias {alias_name} for {function_name}") from exc
 
     current_version = alias_resp["FunctionVersion"]
     routing = alias_resp.get("RoutingConfig", {})
@@ -1033,7 +990,7 @@ async def rollback_manager(
     )
 
     if additional_weights:
-        list(additional_weights.keys())[0]
+        next(iter(additional_weights.keys()))
         previous_version = current_version
     else:
         previous_version = str(max(1, int(current_version) - 1))
@@ -1041,7 +998,7 @@ async def rollback_manager(
     # Query CloudWatch metrics
     import datetime as _dt
 
-    end_time = _dt.datetime.now(tz=_dt.timezone.utc)
+    end_time = _dt.datetime.now(tz=_dt.UTC)
     start_time = end_time - _dt.timedelta(
         minutes=evaluation_minutes,
     )
@@ -1062,10 +1019,8 @@ async def rollback_manager(
             Period=evaluation_minutes * 60,
             Statistics=["Sum"],
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to get metrics for {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get metrics for {function_name}") from exc
 
     datapoints = metric_resp.get("Datapoints", [])
     error_rate = sum(dp.get("Sum", 0.0) for dp in datapoints)
@@ -1079,10 +1034,8 @@ async def rollback_manager(
                 FunctionVersion=previous_version,
                 RoutingConfig={},
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to roll back alias {alias_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to roll back alias {alias_name}") from exc
 
         logger.warning(
             "Rolled back %s alias %s to version %s (error rate: %.1f)",
@@ -1182,7 +1135,7 @@ async def lambda_package_builder(
                             capture_output=True,
                         )
                     except subprocess.CalledProcessError as exc:
-                        raise RuntimeError(f"Failed to install dependencies: {exc}") from exc
+                        raise AwsServiceError(f"Failed to install dependencies: {exc}") from exc
 
                     for root, _dirs, files in os.walk(tmpdir):
                         for fname in files:
@@ -1228,10 +1181,8 @@ async def lambda_package_builder(
             Key=s3_key,
             Body=zip_bytes,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to upload package to s3://{s3_bucket}/{s3_key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to upload package to s3://{s3_bucket}/{s3_key}") from exc
 
     return PackageBuildResult(
         s3_bucket=s3_bucket,

@@ -8,6 +8,19 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "AthenaExecution",
+    "get_query_execution",
+    "get_query_results",
+    "get_table_schema",
+    "run_ddl",
+    "run_query",
+    "start_query",
+    "stop_query",
+    "wait_for_query",
+]
 
 _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
@@ -81,7 +94,7 @@ def start_query(
             WorkGroup=workgroup,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to start Athena query: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to start Athena query") from exc
     return resp["QueryExecutionId"]
 
 
@@ -105,7 +118,7 @@ def get_query_execution(
     try:
         resp = client.get_query_execution(QueryExecutionId=query_execution_id)
     except ClientError as exc:
-        raise RuntimeError(f"get_query_execution failed for {query_execution_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_query_execution failed for {query_execution_id!r}") from exc
     return _parse_execution(resp["QueryExecution"])
 
 
@@ -152,7 +165,7 @@ def get_query_results(
                 if max_rows is not None and len(rows) >= max_rows:
                     return rows
     except ClientError as exc:
-        raise RuntimeError(f"get_query_results failed for {query_execution_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_query_results failed for {query_execution_id!r}") from exc
     return rows
 
 
@@ -228,7 +241,7 @@ def run_query(
         region_name=region_name,
     )
     if not execution.succeeded:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"Athena query {execution_id!r} finished with state "
             f"{execution.state!r}: {execution.state_change_reason}"
         )
@@ -313,7 +326,7 @@ def run_ddl(
     )
     execution = wait_for_query(execution_id, timeout=timeout, region_name=region_name)
     if not execution.succeeded:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"DDL statement failed with state {execution.state!r}: {execution.state_change_reason}"
         )
     return execution
@@ -336,7 +349,7 @@ def stop_query(
     try:
         client.stop_query_execution(QueryExecutionId=query_execution_id)
     except ClientError as exc:
-        raise RuntimeError(f"stop_query failed for {query_execution_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"stop_query failed for {query_execution_id!r}") from exc
 
 
 # ---------------------------------------------------------------------------

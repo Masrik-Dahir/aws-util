@@ -26,16 +26,17 @@ from aws_util.event_patterns import (
     EventSourcingResult,
     OutboxProcessorResult,
 )
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "OutboxProcessorResult",
     "DLQEscalationResult",
     "EventSourcingResult",
-    "transactional_outbox_processor",
+    "OutboxProcessorResult",
     "dlq_escalation_chain",
     "event_sourcing_store",
+    "transactional_outbox_processor",
 ]
 
 # -------------------------------------------------------------------
@@ -58,10 +59,8 @@ async def _publish_to_destination(
                 QueueUrl=destination_arn,
                 MessageBody=payload,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to publish to SQS {destination_arn!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to publish to SQS {destination_arn!r}") from exc
 
     elif destination_type == "sns":
         client = async_client("sns", region_name)
@@ -71,10 +70,8 @@ async def _publish_to_destination(
                 TopicArn=destination_arn,
                 Message=payload,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to publish to SNS {destination_arn!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to publish to SNS {destination_arn!r}") from exc
 
     elif destination_type == "eventbridge":
         client = async_client("events", region_name)
@@ -93,13 +90,11 @@ async def _publish_to_destination(
             )
             failed = resp.get("FailedEntryCount", 0)
             if failed > 0:
-                raise RuntimeError(
+                raise AwsServiceError(
                     f"EventBridge rejected {failed} entry(ies): {resp.get('Entries', [])}"
                 )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to publish to EventBridge: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to publish to EventBridge") from exc
     else:
         raise ValueError(
             f"Unsupported destination_type: {destination_type!r}. "
@@ -166,10 +161,8 @@ async def transactional_outbox_processor(
             "Limit": batch_size,
         }
         resp = await ddb.call("Scan", **scan_kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to scan outbox table {outbox_table_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to scan outbox table {outbox_table_name!r}") from exc
 
     items: list[dict[str, Any]] = resp.get("Items", [])
 
@@ -315,10 +308,8 @@ async def dlq_escalation_chain(
             MessageAttributeNames=["All"],
             WaitTimeSeconds=0,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to receive from DLQ {dlq_url!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to receive from DLQ {dlq_url!r}") from exc
 
     messages = recv_resp.get("Messages", [])
 
@@ -431,10 +422,8 @@ async def dlq_escalation_chain(
                 TableName=incident_table_name,
             )
             item_count = desc.get("Table", {}).get("ItemCount", 0)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to describe incident table: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to describe incident table") from exc
 
         if item_count >= escalation_threshold:
             # Archive incidents to S3
@@ -460,10 +449,8 @@ async def dlq_escalation_chain(
                         len(archive_items),
                         tier3_s3_key,
                     )
-                except RuntimeError:
-                    raise
                 except Exception as exc:
-                    raise RuntimeError(f"Tier-3 S3 archival failed: {exc}") from exc
+                    raise wrap_aws_error(exc, "Tier-3 S3 archival failed") from exc
 
             # Send SNS escalation alert
             if escalation_sns_topic_arn:
@@ -489,10 +476,8 @@ async def dlq_escalation_chain(
                         "Tier-3 escalation alert sent to %s",
                         escalation_sns_topic_arn,
                     )
-                except RuntimeError:
-                    raise
                 except Exception as exc:
-                    raise RuntimeError(f"Tier-3 SNS escalation failed: {exc}") from exc
+                    raise wrap_aws_error(exc, "Tier-3 SNS escalation failed") from exc
 
     result = DLQEscalationResult(
         tier1_retried=tier1_retried,
@@ -542,14 +527,14 @@ async def _append_event(
     except RuntimeError as re_exc:
         err_str = str(re_exc)
         if "ConditionalCheckFailedException" in err_str:
-            raise RuntimeError(
+            raise AwsServiceError(
                 f"Optimistic concurrency conflict: version "
                 f"{new_version} already exists for aggregate "
                 f"{aggregate_id!r}."
             ) from re_exc
         raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to append event: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to append event") from exc
 
     logger.info(
         "Appended event v%d to aggregate %s",
@@ -582,10 +567,8 @@ async def _get_events(
             },
             ScanIndexForward=True,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to get events for aggregate {aggregate_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get events for aggregate {aggregate_id!r}") from exc
 
     items = resp.get("Items", [])
     max_version = 0
@@ -632,11 +615,9 @@ async def _snapshot(
                     "timestamp": {"N": now_ts},
                 },
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to create snapshot for aggregate {aggregate_id!r}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to create snapshot for aggregate {aggregate_id!r}"
             ) from exc
 
         logger.info(
@@ -660,10 +641,8 @@ async def _snapshot(
                 "pk": {"S": f"snapshot#{aggregate_id}"},
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to get snapshot for aggregate {aggregate_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get snapshot for aggregate {aggregate_id!r}") from exc
 
     item = resp.get("Item")
     if item is None:
@@ -710,11 +689,9 @@ async def _rebuild_aggregate(
             },
             ScanIndexForward=True,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to query events for rebuild of aggregate {aggregate_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to query events for rebuild of aggregate {aggregate_id!r}"
         ) from exc
 
     items = resp.get("Items", [])
@@ -761,11 +738,9 @@ async def _publish_event(
             ScanIndexForward=False,
             Limit=1,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to query latest event for aggregate {aggregate_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to query latest event for aggregate {aggregate_id!r}"
         ) from exc
 
     items = resp.get("Items", [])
@@ -789,11 +764,9 @@ async def _publish_event(
             Data=event_data.encode("utf-8"),
             PartitionKey=aggregate_id,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to publish event to Kinesis stream {kinesis_stream_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to publish event to Kinesis stream {kinesis_stream_name!r}"
         ) from exc
 
     logger.info(

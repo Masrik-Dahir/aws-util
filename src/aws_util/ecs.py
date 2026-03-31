@@ -6,6 +6,24 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "ECSService",
+    "ECSTask",
+    "ECSTaskDefinition",
+    "describe_services",
+    "describe_task_definition",
+    "describe_tasks",
+    "list_clusters",
+    "list_tasks",
+    "run_task",
+    "run_task_and_wait",
+    "stop_task",
+    "update_service",
+    "wait_for_service_stable",
+    "wait_for_task",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -81,7 +99,7 @@ def list_clusters(region_name: str | None = None) -> list[str]:
         for page in paginator.paginate():
             arns.extend(page.get("clusterArns", []))
     except ClientError as exc:
-        raise RuntimeError(f"list_clusters failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_clusters failed") from exc
     return arns
 
 
@@ -136,10 +154,10 @@ def run_task(
     try:
         resp = client.run_task(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"run_task failed on cluster {cluster!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"run_task failed on cluster {cluster!r}") from exc
 
     if resp.get("failures"):
-        raise RuntimeError(f"ECS run_task failures: {resp['failures']}")
+        raise AwsServiceError(f"ECS run_task failures: {resp['failures']}")
     return [_parse_task(t) for t in resp.get("tasks", [])]
 
 
@@ -164,7 +182,7 @@ def stop_task(
     try:
         client.stop_task(cluster=cluster, task=task_arn, reason=reason)
     except ClientError as exc:
-        raise RuntimeError(f"stop_task failed for {task_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"stop_task failed for {task_arn!r}") from exc
 
 
 def describe_tasks(
@@ -189,7 +207,7 @@ def describe_tasks(
     try:
         resp = client.describe_tasks(cluster=cluster, tasks=task_arns)
     except ClientError as exc:
-        raise RuntimeError(f"describe_tasks failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_tasks failed") from exc
     return [_parse_task(t) for t in resp.get("tasks", [])]
 
 
@@ -228,7 +246,7 @@ def list_tasks(
         for page in paginator.paginate(**kwargs):
             arns.extend(page.get("taskArns", []))
     except ClientError as exc:
-        raise RuntimeError(f"list_tasks failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_tasks failed") from exc
     return arns
 
 
@@ -254,7 +272,7 @@ def describe_services(
     try:
         resp = client.describe_services(cluster=cluster, services=service_names)
     except ClientError as exc:
-        raise RuntimeError(f"describe_services failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_services failed") from exc
     return [
         ECSService(
             service_arn=svc["serviceArn"],
@@ -310,7 +328,7 @@ def update_service(
     try:
         resp = client.update_service(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"update_service failed for {service_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"update_service failed for {service_name!r}") from exc
     svc = resp["service"]
     return ECSService(
         service_arn=svc["serviceArn"],
@@ -345,8 +363,8 @@ def describe_task_definition(
     try:
         resp = client.describe_task_definition(taskDefinition=task_definition)
     except ClientError as exc:
-        raise RuntimeError(
-            f"describe_task_definition failed for {task_definition!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"describe_task_definition failed for {task_definition!r}"
         ) from exc
     td = resp["taskDefinition"]
     return ECSTaskDefinition(
@@ -414,7 +432,7 @@ def wait_for_task(
     while True:
         tasks = describe_tasks(cluster, [task_arn], region_name=region_name)
         if not tasks:
-            raise RuntimeError(f"Task {task_arn!r} not found in cluster {cluster!r}")
+            raise AwsServiceError(f"Task {task_arn!r} not found in cluster {cluster!r}")
         task = tasks[0]
         if task.last_status == target_status:
             return task
@@ -502,7 +520,7 @@ def wait_for_service_stable(
     while True:
         services = describe_services(cluster, [service_name], region_name=region_name)
         if not services:
-            raise RuntimeError(f"Service {service_name!r} not found in cluster {cluster!r}")
+            raise AwsServiceError(f"Service {service_name!r} not found in cluster {cluster!r}")
         svc = services[0]
         if svc.running_count == svc.desired_count and svc.pending_count == 0:
             return svc

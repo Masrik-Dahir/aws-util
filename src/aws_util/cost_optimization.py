@@ -19,14 +19,36 @@ Provides helpers for reducing and managing AWS costs:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "ConcurrencyOptimizerResult",
+    "ConcurrencyRecommendation",
+    "CostAttributionTaggerResult",
+    "DynamoDBCapacityAdvice",
+    "DynamoDBCapacityAdvisorResult",
+    "LambdaRightSizerResult",
+    "LogRetentionChange",
+    "LogRetentionEnforcerResult",
+    "MemoryConfig",
+    "TagComplianceResource",
+    "UnusedResource",
+    "UnusedResourceFinderResult",
+    "concurrency_optimizer",
+    "cost_attribution_tagger",
+    "dynamodb_capacity_advisor",
+    "lambda_right_sizer",
+    "log_retention_enforcer",
+    "unused_resource_finder",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -205,7 +227,7 @@ def lambda_right_sizer(
             FunctionName=function_name,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to get config for {function_name}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get config for {function_name}") from exc
 
     original_memory = func_config["MemorySize"]
     configs: list[MemoryConfig] = []
@@ -220,7 +242,7 @@ def lambda_right_sizer(
                 MemorySize=mem,
             )
         except ClientError as exc:
-            raise RuntimeError(f"Failed to update {function_name} to {mem}MB: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to update {function_name} to {mem}MB") from exc
 
         # Invoke N times
         durations: list[float] = []
@@ -241,10 +263,10 @@ def lambda_right_sizer(
                 )
                 durations.append(float(dur) if dur != "0" else 100.0)
             except ClientError as exc:
-                raise RuntimeError(f"Failed to invoke {function_name}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to invoke {function_name}") from exc
 
         # Query CloudWatch for average duration
-        end_time = datetime.now(tz=timezone.utc)
+        end_time = datetime.now(tz=UTC)
         start_time = end_time - timedelta(minutes=5)
         try:
             metrics = cw.get_metric_statistics(
@@ -257,7 +279,7 @@ def lambda_right_sizer(
                 Statistics=["Average"],
             )
         except ClientError as exc:
-            raise RuntimeError(f"Failed to get metrics for {function_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get metrics for {function_name}") from exc
 
         datapoints = metrics.get("Datapoints", [])
         if datapoints:
@@ -287,8 +309,8 @@ def lambda_right_sizer(
             MemorySize=original_memory,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to restore {function_name} to {original_memory}MB: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to restore {function_name} to {original_memory}MB"
         ) from exc
 
     # Calculate savings
@@ -349,9 +371,9 @@ def unused_resource_finder(
     try:
         funcs_resp = lam.list_functions()
     except ClientError as exc:
-        raise RuntimeError(f"Failed to list Lambda functions: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to list Lambda functions") from exc
 
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days_inactive)
+    cutoff = datetime.now(tz=UTC) - timedelta(days=days_inactive)
     for func in funcs_resp.get("Functions", []):
         last_modified = func.get("LastModified", "")
         if last_modified:
@@ -373,7 +395,7 @@ def unused_resource_finder(
     try:
         queues_resp = sqs.list_queues()
     except ClientError as exc:
-        raise RuntimeError(f"Failed to list SQS queues: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to list SQS queues") from exc
 
     for queue_url in queues_resp.get("QueueUrls", []):
         try:
@@ -397,7 +419,7 @@ def unused_resource_finder(
     try:
         log_groups_resp = logs.describe_log_groups()
     except ClientError as exc:
-        raise RuntimeError(f"Failed to list log groups: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to list log groups") from exc
 
     lambda_names = {f.get("FunctionName", "") for f in funcs_resp.get("Functions", [])}
     for lg in log_groups_resp.get("logGroups", []):
@@ -451,7 +473,7 @@ def concurrency_optimizer(
         RuntimeError: If querying CloudWatch metrics fails.
     """
     cw = get_client("cloudwatch", region_name=region_name)
-    end_time = datetime.now(tz=timezone.utc)
+    end_time = datetime.now(tz=UTC)
     start_time = end_time - timedelta(minutes=lookback_minutes)
 
     recommendations: list[ConcurrencyRecommendation] = []
@@ -469,7 +491,7 @@ def concurrency_optimizer(
                 Statistics=["Maximum", "Average"],
             )
         except ClientError as exc:
-            raise RuntimeError(f"Failed to get concurrency metrics for {fn}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get concurrency metrics for {fn}") from exc
 
         datapoints = resp.get("Datapoints", [])
         if datapoints:
@@ -561,7 +583,7 @@ def cost_attribution_tagger(
                 ResourceARNList=[arn],
             )
         except ClientError as exc:
-            raise RuntimeError(f"Failed to get tags for {arn}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get tags for {arn}") from exc
 
         resource_list = resp.get("ResourceTagMappingList", [])
         existing_tags: dict[str, str] = {}
@@ -640,7 +662,7 @@ def dynamodb_capacity_advisor(
     ddb = get_client("dynamodb", region_name=region_name)
     cw = get_client("cloudwatch", region_name=region_name)
 
-    end_time = datetime.now(tz=timezone.utc)
+    end_time = datetime.now(tz=UTC)
     start_time = end_time - timedelta(minutes=lookback_minutes)
 
     tables: list[DynamoDBCapacityAdvice] = []
@@ -650,7 +672,7 @@ def dynamodb_capacity_advisor(
         try:
             desc = ddb.describe_table(TableName=table_name)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to describe table {table_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to describe table {table_name}") from exc
 
         table_info = desc["Table"]
         billing = table_info.get("BillingModeSummary", {}).get("BillingMode", "PROVISIONED")
@@ -676,7 +698,7 @@ def dynamodb_capacity_advisor(
             if rcu_dps:
                 consumed_rcu = sum(dp.get("Sum", 0.0) for dp in rcu_dps) / len(rcu_dps)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to get RCU metrics for {table_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get RCU metrics for {table_name}") from exc
 
         # Get consumed WCU
         consumed_wcu = 0.0
@@ -696,7 +718,7 @@ def dynamodb_capacity_advisor(
             if wcu_dps:
                 consumed_wcu = sum(dp.get("Sum", 0.0) for dp in wcu_dps) / len(wcu_dps)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to get WCU metrics for {table_name}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get WCU metrics for {table_name}") from exc
 
         # Recommendation logic
         if billing == "PAY_PER_REQUEST":
@@ -779,7 +801,7 @@ def log_retention_enforcer(
             logGroupNamePrefix=log_group_prefix,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to list log groups: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to list log groups") from exc
 
     for lg in resp.get("logGroups", []):
         name = lg.get("logGroupName", "")

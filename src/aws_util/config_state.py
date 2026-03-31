@@ -22,14 +22,31 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import UTC
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "AssumedRoleCredentials",
+    "CheckpointResult",
+    "DistributedLockResult",
+    "EnvironmentSyncResult",
+    "FeatureFlagResult",
+    "ResolvedConfig",
+    "appconfig_feature_loader",
+    "config_resolver",
+    "cross_account_role_assumer",
+    "distributed_lock",
+    "environment_variable_sync",
+    "state_machine_checkpoint",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -160,7 +177,7 @@ def config_resolver(
                 short = name[len(prefix) :] if name.startswith(prefix) else name
                 parameters[short] = param["Value"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to load SSM parameters under {prefix}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to load SSM parameters under {prefix}") from exc
 
     # Load secrets
     secrets: dict[str, str] = {}
@@ -175,7 +192,7 @@ def config_resolver(
                     for k, v in parsed.items():
                         secrets[k] = str(v)
             except ClientError as exc:
-                raise RuntimeError(f"Failed to load secret {secret_name!r}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to load secret {secret_name!r}") from exc
 
     # Merge: parameters first, secrets override
     merged = {**parameters, **secrets}
@@ -264,7 +281,7 @@ def distributed_lock(
                     ttl=ttl_seconds,
                     message="Lock already held by another owner",
                 )
-            raise RuntimeError(f"Failed to acquire lock {lock_key!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to acquire lock {lock_key!r}") from exc
 
         logger.info("Lock %r acquired by %s (TTL %ds)", lock_key, owner, ttl_seconds)
         return DistributedLockResult(
@@ -299,7 +316,7 @@ def distributed_lock(
                 owner=owner,
                 message="Lock not owned by this owner",
             )
-        raise RuntimeError(f"Failed to release lock {lock_key!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to release lock {lock_key!r}") from exc
 
     logger.info("Lock %r released by %s", lock_key, owner)
     return DistributedLockResult(
@@ -362,7 +379,7 @@ def state_machine_checkpoint(
                 },
             )
         except ClientError as exc:
-            raise RuntimeError(f"Failed to save checkpoint for {execution_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to save checkpoint for {execution_id!r}") from exc
 
         logger.info(
             "Checkpoint saved for %s at step %s",
@@ -383,7 +400,7 @@ def state_machine_checkpoint(
             Key={"pk": {"S": pk}},
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to restore checkpoint for {execution_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to restore checkpoint for {execution_id!r}") from exc
 
     item = resp.get("Item")
     if item is None:
@@ -420,11 +437,11 @@ _role_cache: dict[str, AssumedRoleCredentials] = {}
 
 def _is_expired(creds: AssumedRoleCredentials) -> bool:
     """Check whether cached credentials have expired."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     try:
         exp = datetime.fromisoformat(creds.expiration.replace("Z", "+00:00"))
-        return datetime.now(timezone.utc) >= exp
+        return datetime.now(UTC) >= exp
     except (ValueError, AttributeError):
         return True
 
@@ -495,10 +512,10 @@ def cross_account_role_assumer(
             resp = sts.assume_role(**kwargs)
             creds = resp["Credentials"]
         except ClientError as exc:
-            raise RuntimeError(f"Failed to assume role {arn!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to assume role {arn!r}") from exc
 
     # creds is guaranteed non-None since role_arns is non-empty
-    assert creds is not None  # noqa: S101
+    assert creds is not None
 
     expiration = creds["Expiration"]
     if hasattr(expiration, "isoformat"):
@@ -569,7 +586,7 @@ def environment_variable_sync(
                 env_key = short.replace("/", "_").upper()
                 desired[env_key] = param["Value"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to load SSM parameters under {prefix}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to load SSM parameters under {prefix}") from exc
 
     # Get current Lambda env vars
     try:
@@ -578,7 +595,7 @@ def environment_variable_sync(
         )
         current = func_config.get("Environment", {}).get("Variables", {})
     except ClientError as exc:
-        raise RuntimeError(f"Failed to get config for {function_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get config for {function_name!r}") from exc
 
     # Detect changes
     added = [k for k in desired if k not in current]
@@ -603,7 +620,7 @@ def environment_variable_sync(
             Environment={"Variables": merged},
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to update env vars for {function_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update env vars for {function_name!r}") from exc
 
     logger.info(
         "Synced env vars for %s: added=%s, changed=%s",
@@ -680,9 +697,9 @@ def appconfig_feature_loader(
         content = resp["Content"].read()
         version = resp.get("ConfigurationVersion", "")
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to load feature flags from AppConfig "
-            f"({application}/{environment}/{profile}): {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"Failed to load feature flags from AppConfig ({application}/{environment}/{profile})",
         ) from exc
 
     try:

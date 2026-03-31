@@ -10,10 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.security_compliance import (
     CognitoAuthResult,
     ComplianceSnapshotResult,
@@ -33,26 +34,26 @@ from aws_util.security_compliance import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "PrivilegeAnalysisResult",
-    "SecretRotationResult",
-    "DataMaskingResult",
-    "SecurityGroupAuditResult",
-    "EncryptionStatus",
-    "EncryptionEnforcerResult",
-    "WafAssociationResult",
-    "ComplianceSnapshotResult",
-    "PolicyValidationFinding",
-    "ResourcePolicyValidationResult",
     "CognitoAuthResult",
-    "least_privilege_analyzer",
-    "secret_rotation_orchestrator",
-    "data_masking_processor",
-    "vpc_security_group_auditor",
-    "encryption_enforcer",
+    "ComplianceSnapshotResult",
+    "DataMaskingResult",
+    "EncryptionEnforcerResult",
+    "EncryptionStatus",
+    "PolicyValidationFinding",
+    "PrivilegeAnalysisResult",
+    "ResourcePolicyValidationResult",
+    "SecretRotationResult",
+    "SecurityGroupAuditResult",
+    "WafAssociationResult",
     "api_gateway_waf_manager",
-    "compliance_snapshot",
-    "resource_policy_validator",
     "cognito_auth_flow_manager",
+    "compliance_snapshot",
+    "data_masking_processor",
+    "encryption_enforcer",
+    "least_privilege_analyzer",
+    "resource_policy_validator",
+    "secret_rotation_orchestrator",
+    "vpc_security_group_auditor",
 ]
 
 
@@ -89,13 +90,10 @@ async def least_privilege_analyzer(
             FunctionName=function_name,
         )
         role_arn = cfg["Role"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"least_privilege_analyzer "
-            f"get_function_configuration failed for "
-            f"{function_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"least_privilege_analyzer get_function_configuration failed for {function_name!r}",
         ) from exc
 
     role_name = role_arn.rsplit("/", 1)[-1]
@@ -124,11 +122,10 @@ async def least_privilege_analyzer(
                 _check_policy_document(doc, arn, findings)
             except Exception:
                 findings.append(f"Could not read policy {arn}")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"least_privilege_analyzer list_attached_role_policies failed for {role_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"least_privilege_analyzer list_attached_role_policies failed for {role_name!r}",
         ) from exc
 
     # Check inline policies
@@ -152,11 +149,10 @@ async def least_privilege_analyzer(
                 )
             except Exception:
                 findings.append(f"Could not read inline policy {policy_name}")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"least_privilege_analyzer list_role_policies failed for {role_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"least_privilege_analyzer list_role_policies failed for {role_name!r}",
         ) from exc
 
     return PrivilegeAnalysisResult(
@@ -209,11 +205,10 @@ async def secret_rotation_orchestrator(
             SecretString=new_secret_value,
         )
         version_id = resp["VersionId"]
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"secret_rotation_orchestrator put_secret_value failed for {secret_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"secret_rotation_orchestrator put_secret_value failed for {secret_id!r}",
         ) from exc
 
     # Sync to SSM if requested
@@ -227,11 +222,10 @@ async def secret_rotation_orchestrator(
                 Type="SecureString",
                 Overwrite=True,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"secret_rotation_orchestrator SSM sync failed for {ssm_param_name!r}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"secret_rotation_orchestrator SSM sync failed for {ssm_param_name!r}",
             ) from exc
 
     # Update Lambda environment variables
@@ -255,11 +249,10 @@ async def secret_rotation_orchestrator(
                     Environment={"Variables": env_vars},
                 )
                 lambdas_updated.append(fn)
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"secret_rotation_orchestrator Lambda update failed for {fn!r}: {exc}"
+                raise wrap_aws_error(
+                    exc,
+                    f"secret_rotation_orchestrator Lambda update failed for {fn!r}",
                 ) from exc
 
     # Notify via SNS
@@ -329,10 +322,8 @@ async def data_masking_processor(
             Text=text,
             LanguageCode=language_code,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"data_masking_processor detect_pii_entities failed: {exc}") from exc
+        raise wrap_aws_error(exc, "data_masking_processor detect_pii_entities failed") from exc
 
     entities = resp.get("Entities", [])
     pii_types: list[str] = []
@@ -368,7 +359,7 @@ async def data_masking_processor(
                     {
                         "timestamp": int(
                             datetime.now(
-                                tz=timezone.utc,
+                                tz=UTC,
                             ).timestamp()
                             * 1000
                         ),
@@ -376,10 +367,8 @@ async def data_masking_processor(
                     }
                 ],
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"data_masking_processor put_log_events failed: {exc}") from exc
+            raise wrap_aws_error(exc, "data_masking_processor put_log_events failed") from exc
 
     return DataMaskingResult(
         original_length=len(text),
@@ -424,13 +413,10 @@ async def vpc_security_group_auditor(
             "GetFunctionConfiguration",
             FunctionName=function_name,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"vpc_security_group_auditor "
-            f"get_function_configuration failed for "
-            f"{function_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"vpc_security_group_auditor get_function_configuration failed for {function_name!r}",
         ) from exc
 
     vpc_cfg = cfg.get("VpcConfig", {})
@@ -443,11 +429,9 @@ async def vpc_security_group_auditor(
                 "DescribeSecurityGroups",
                 GroupIds=sg_ids,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"vpc_security_group_auditor describe_security_groups failed: {exc}"
+            raise wrap_aws_error(
+                exc, "vpc_security_group_auditor describe_security_groups failed"
             ) from exc
 
         for sg in resp.get("SecurityGroups", []):
@@ -580,11 +564,10 @@ async def encryption_enforcer(
                             },
                         )
                         remediated = True
-                    except RuntimeError:
-                        raise
                     except Exception as exc:
-                        raise RuntimeError(
-                            f"encryption_enforcer DynamoDB remediation failed for {table!r}: {exc}"
+                        raise wrap_aws_error(
+                            exc,
+                            f"encryption_enforcer DynamoDB remediation failed for {table!r}",
                         ) from exc
                 statuses.append(
                     EncryptionStatus(
@@ -595,11 +578,9 @@ async def encryption_enforcer(
                         remediated=remediated,
                     )
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"encryption_enforcer DynamoDB describe failed for {table!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"encryption_enforcer DynamoDB describe failed for {table!r}"
                 ) from exc
 
     # SQS
@@ -626,11 +607,9 @@ async def encryption_enforcer(
                             },
                         )
                         remediated = True
-                    except RuntimeError:
-                        raise
                     except Exception as exc:
-                        raise RuntimeError(
-                            f"encryption_enforcer SQS remediation failed for {url!r}: {exc}"
+                        raise wrap_aws_error(
+                            exc, f"encryption_enforcer SQS remediation failed for {url!r}"
                         ) from exc
                 statuses.append(
                     EncryptionStatus(
@@ -641,11 +620,9 @@ async def encryption_enforcer(
                         remediated=remediated,
                     )
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"encryption_enforcer SQS describe failed for {url!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"encryption_enforcer SQS describe failed for {url!r}"
                 ) from exc
 
     # SNS
@@ -670,11 +647,9 @@ async def encryption_enforcer(
                             AttributeValue=kms_key_id,
                         )
                         remediated = True
-                    except RuntimeError:
-                        raise
                     except Exception as exc:
-                        raise RuntimeError(
-                            f"encryption_enforcer SNS remediation failed for {arn!r}: {exc}"
+                        raise wrap_aws_error(
+                            exc, f"encryption_enforcer SNS remediation failed for {arn!r}"
                         ) from exc
                 statuses.append(
                     EncryptionStatus(
@@ -685,11 +660,9 @@ async def encryption_enforcer(
                         remediated=remediated,
                     )
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"encryption_enforcer SNS describe failed for {arn!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"encryption_enforcer SNS describe failed for {arn!r}"
                 ) from exc
 
     # S3
@@ -734,11 +707,9 @@ async def encryption_enforcer(
                             },
                         )
                         remediated = True
-                    except RuntimeError:
-                        raise
                     except Exception as exc:
-                        raise RuntimeError(
-                            f"encryption_enforcer S3 remediation failed for {bucket!r}: {exc}"
+                        raise wrap_aws_error(
+                            exc, f"encryption_enforcer S3 remediation failed for {bucket!r}"
                         ) from exc
                 statuses.append(
                     EncryptionStatus(
@@ -771,11 +742,9 @@ async def encryption_enforcer(
                             },
                         )
                         remediated = True
-                    except RuntimeError:
-                        raise
                     except Exception as exc:
-                        raise RuntimeError(
-                            f"encryption_enforcer S3 remediation failed for {bucket!r}: {exc}"
+                        raise wrap_aws_error(
+                            exc, f"encryption_enforcer S3 remediation failed for {bucket!r}"
                         ) from exc
                 statuses.append(
                     EncryptionStatus(
@@ -833,10 +802,8 @@ async def api_gateway_waf_manager(
 
     try:
         await sts.call("GetCallerIdentity")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"api_gateway_waf_manager get_caller_identity failed: {exc}") from exc
+        raise wrap_aws_error(exc, "api_gateway_waf_manager get_caller_identity failed") from exc
 
     resource_arn = (
         f"arn:aws:apigateway:{resolved_region}::/restapis/{rest_api_id}/stages/{stage_name}"
@@ -848,12 +815,10 @@ async def api_gateway_waf_manager(
             WebACLArn=web_acl_arn,
             ResourceArn=resource_arn,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"api_gateway_waf_manager associate_web_acl "
-            f"failed for {rest_api_id}/{stage_name}: {exc}"
+        raise wrap_aws_error(
+            exc,
+            f"api_gateway_waf_manager associate_web_acl failed for {rest_api_id}/{stage_name}",
         ) from exc
 
     return WafAssociationResult(
@@ -902,10 +867,8 @@ async def compliance_snapshot(
                 token_input="Marker",
                 token_output="NextMarker",
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"compliance_snapshot list_functions failed: {exc}") from exc
+            raise wrap_aws_error(exc, "compliance_snapshot list_functions failed") from exc
 
         functions: list[dict[str, Any]] = []
         for fn in items:
@@ -936,10 +899,8 @@ async def compliance_snapshot(
                 token_input="Marker",
                 token_output="Marker",
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"compliance_snapshot list_roles failed: {exc}") from exc
+            raise wrap_aws_error(exc, "compliance_snapshot list_roles failed") from exc
 
         roles: list[dict[str, Any]] = []
         for role in items:
@@ -960,7 +921,7 @@ async def compliance_snapshot(
         _list_roles(),
     )
 
-    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
     s3_key = f"{s3_key_prefix.rstrip('/')}/{ts}.json"
 
     snapshot = {
@@ -977,10 +938,8 @@ async def compliance_snapshot(
             Body=json.dumps(snapshot, indent=2).encode(),
             ContentType="application/json",
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"compliance_snapshot S3 upload failed: {exc}") from exc
+        raise wrap_aws_error(exc, "compliance_snapshot S3 upload failed") from exc
 
     return ComplianceSnapshotResult(
         s3_bucket=s3_bucket,
@@ -1030,11 +989,9 @@ async def resource_policy_validator(
         try:
             identity = await sts.call("GetCallerIdentity")
             account_id = identity["Account"]
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"resource_policy_validator get_caller_identity failed: {exc}"
+            raise wrap_aws_error(
+                exc, "resource_policy_validator get_caller_identity failed"
             ) from exc
 
     findings: list[PolicyValidationFinding] = []
@@ -1061,8 +1018,8 @@ async def resource_policy_validator(
             except Exception as exc:
                 if "ResourceNotFoundException" in str(exc):
                     continue  # no policy attached
-                raise RuntimeError(
-                    f"resource_policy_validator Lambda get_policy failed for {fn!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"resource_policy_validator Lambda get_policy failed for {fn!r}"
                 ) from exc
 
     # SQS queue policies
@@ -1088,11 +1045,10 @@ async def resource_policy_validator(
                         queue_name,
                         findings,
                     )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"resource_policy_validator SQS get_queue_attributes failed for {url!r}: {exc}"
+                raise wrap_aws_error(
+                    exc,
+                    f"resource_policy_validator SQS get_queue_attributes failed for {url!r}",
                 ) from exc
 
     # SNS topic policies
@@ -1117,11 +1073,10 @@ async def resource_policy_validator(
                         topic_name,
                         findings,
                     )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"resource_policy_validator SNS get_topic_attributes failed for {arn!r}: {exc}"
+                raise wrap_aws_error(
+                    exc,
+                    f"resource_policy_validator SNS get_topic_attributes failed for {arn!r}",
                 ) from exc
 
     # S3 bucket policies
@@ -1149,8 +1104,9 @@ async def resource_policy_validator(
                     or "ServerSideEncryptionConfigurationNotFoundError" in err_str
                 ):
                     continue
-                raise RuntimeError(
-                    f"resource_policy_validator S3 get_bucket_policy failed for {bucket!r}: {exc}"
+                raise wrap_aws_error(
+                    exc,
+                    f"resource_policy_validator S3 get_bucket_policy failed for {bucket!r}",
                 ) from exc
 
     cross_account = sum(1 for f in findings if "cross-account" in f.issue.lower())
@@ -1288,10 +1244,8 @@ async def _cognito_sign_up(
             user_sub=resp.get("UserSub"),
             message="User registered successfully",
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"cognito sign_up failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"cognito sign_up failed for {username!r}") from exc
 
 
 async def _cognito_sign_in(
@@ -1341,10 +1295,8 @@ async def _cognito_sign_in(
                 ),
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"cognito sign_in failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"cognito sign_in failed for {username!r}") from exc
 
 
 async def _cognito_refresh(
@@ -1378,10 +1330,8 @@ async def _cognito_refresh(
                 "IdToken": result.get("IdToken", ""),
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"cognito refresh failed: {exc}") from exc
+        raise wrap_aws_error(exc, "cognito refresh failed") from exc
 
 
 async def _cognito_forgot_password(
@@ -1403,10 +1353,8 @@ async def _cognito_forgot_password(
             success=True,
             message="Password reset code sent",
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"cognito forgot_password failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"cognito forgot_password failed for {username!r}") from exc
 
 
 async def _cognito_confirm_forgot(
@@ -1432,11 +1380,9 @@ async def _cognito_confirm_forgot(
             success=True,
             message="Password reset successfully",
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"cognito confirm_forgot_password failed for {username!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"cognito confirm_forgot_password failed for {username!r}"
         ) from exc
 
 
@@ -1479,7 +1425,5 @@ async def _cognito_respond_mfa(
                 ),
             },
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"cognito respond_to_mfa failed for {username!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"cognito respond_to_mfa failed for {username!r}") from exc

@@ -6,6 +6,19 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "HostedZone",
+    "ResourceRecord",
+    "bulk_upsert_records",
+    "delete_record",
+    "get_hosted_zone",
+    "list_hosted_zones",
+    "list_records",
+    "upsert_record",
+    "wait_for_change",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -74,7 +87,7 @@ def list_hosted_zones(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_hosted_zones failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_hosted_zones failed") from exc
     return zones
 
 
@@ -98,7 +111,7 @@ def get_hosted_zone(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "NoSuchHostedZone":
             return None
-        raise RuntimeError(f"get_hosted_zone failed for {zone_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_hosted_zone failed for {zone_id!r}") from exc
     zone = resp["HostedZone"]
     config = zone.get("Config", {})
     return HostedZone(
@@ -145,7 +158,7 @@ def list_records(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_records failed for zone {zone_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"list_records failed for zone {zone_id!r}") from exc
     return records
 
 
@@ -196,7 +209,7 @@ def upsert_record(
     try:
         resp = client.change_resource_record_sets(HostedZoneId=zone_id, ChangeBatch=change_batch)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to upsert record {name!r} in zone {zone_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to upsert record {name!r} in zone {zone_id!r}") from exc
     return resp["ChangeInfo"]["Id"]
 
 
@@ -243,8 +256,8 @@ def delete_record(
     try:
         resp = client.change_resource_record_sets(HostedZoneId=zone_id, ChangeBatch=change_batch)
     except ClientError as exc:
-        raise RuntimeError(
-            f"Failed to delete record {name!r} from zone {zone_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to delete record {name!r} from zone {zone_id!r}"
         ) from exc
     return resp["ChangeInfo"]["Id"]
 
@@ -291,7 +304,7 @@ def wait_for_change(
         try:
             resp = client.get_change(Id=change_id)
         except ClientError as exc:
-            raise RuntimeError(f"wait_for_change failed for {change_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"wait_for_change failed for {change_id!r}") from exc
 
         status = resp["ChangeInfo"]["Status"]
         if status == "INSYNC":
@@ -348,5 +361,5 @@ def bulk_upsert_records(
             ChangeBatch={"Changes": changes},
         )
     except ClientError as exc:
-        raise RuntimeError(f"bulk_upsert_records failed for zone {zone_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"bulk_upsert_records failed for zone {zone_id!r}") from exc
     return resp["ChangeInfo"]["Id"]

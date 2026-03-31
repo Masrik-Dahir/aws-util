@@ -8,19 +8,20 @@ from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.athena import AthenaExecution
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 _TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
 __all__ = [
     "AthenaExecution",
-    "start_query",
     "get_query_execution",
     "get_query_results",
-    "wait_for_query",
-    "run_query",
     "get_table_schema",
     "run_ddl",
+    "run_query",
+    "start_query",
     "stop_query",
+    "wait_for_query",
 ]
 
 
@@ -87,7 +88,7 @@ async def start_query(
             WorkGroup=workgroup,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to start Athena query: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to start Athena query") from exc
     return resp["QueryExecutionId"]
 
 
@@ -114,7 +115,7 @@ async def get_query_execution(
             QueryExecutionId=query_execution_id,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"get_query_execution failed for {query_execution_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_query_execution failed for {query_execution_id!r}") from exc
     return _parse_execution(resp["QueryExecution"])
 
 
@@ -167,7 +168,7 @@ async def get_query_results(
                 break
             kwargs["NextToken"] = next_token
     except RuntimeError as exc:
-        raise RuntimeError(f"get_query_results failed for {query_execution_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_query_results failed for {query_execution_id!r}") from exc
     return rows
 
 
@@ -249,7 +250,7 @@ async def run_query(
         region_name=region_name,
     )
     if not execution.succeeded:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"Athena query {execution_id!r} finished with state "
             f"{execution.state!r}: {execution.state_change_reason}"
         )
@@ -338,7 +339,7 @@ async def run_ddl(
     )
     execution = await wait_for_query(execution_id, timeout=timeout, region_name=region_name)
     if not execution.succeeded:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"DDL statement failed with state {execution.state!r}: {execution.state_change_reason}"
         )
     return execution
@@ -364,4 +365,4 @@ async def stop_query(
             QueryExecutionId=query_execution_id,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"stop_query failed for {query_execution_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"stop_query failed for {query_execution_id!r}") from exc

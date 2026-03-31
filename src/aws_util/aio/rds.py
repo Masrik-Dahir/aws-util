@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.rds import RDSInstance, RDSSnapshot
 
 __all__ = [
@@ -108,10 +109,8 @@ async def describe_db_instances(
                 token = resp.get("Marker")
                 if not token:
                     break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"describe_db_instances failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_db_instances failed") from exc
     return instances
 
 
@@ -144,10 +143,8 @@ async def start_db_instance(
     client = async_client("rds", region_name)
     try:
         await client.call("StartDBInstance", DBInstanceIdentifier=db_instance_id)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to start RDS instance {db_instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start RDS instance {db_instance_id!r}") from exc
 
 
 async def stop_db_instance(
@@ -168,10 +165,8 @@ async def stop_db_instance(
     client = async_client("rds", region_name)
     try:
         await client.call("StopDBInstance", DBInstanceIdentifier=db_instance_id)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to stop RDS instance {db_instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to stop RDS instance {db_instance_id!r}") from exc
 
 
 async def create_db_snapshot(
@@ -199,10 +194,8 @@ async def create_db_snapshot(
             DBInstanceIdentifier=db_instance_id,
             DBSnapshotIdentifier=snapshot_id,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create snapshot for {db_instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create snapshot for {db_instance_id!r}") from exc
     snap = resp["DBSnapshot"]
     return RDSSnapshot(
         snapshot_id=snap["DBSnapshotIdentifier"],
@@ -231,10 +224,8 @@ async def delete_db_snapshot(
     client = async_client("rds", region_name)
     try:
         await client.call("DeleteDBSnapshot", DBSnapshotIdentifier=snapshot_id)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to delete snapshot {snapshot_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete snapshot {snapshot_id!r}") from exc
 
 
 async def describe_db_snapshots(
@@ -283,10 +274,8 @@ async def describe_db_snapshots(
             token = resp.get("Marker")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"describe_db_snapshots failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_db_snapshots failed") from exc
     return snapshots
 
 
@@ -326,7 +315,7 @@ async def wait_for_db_instance(
     while True:
         instance = await get_db_instance(db_instance_id, region_name=region_name)
         if instance is None:
-            raise RuntimeError(f"DB instance {db_instance_id!r} not found")
+            raise AwsServiceError(f"DB instance {db_instance_id!r} not found")
         if instance.status == target_status:
             return instance
         if _time.monotonic() >= deadline:
@@ -368,13 +357,11 @@ async def wait_for_snapshot(
     while True:
         try:
             resp = await client.call("DescribeDBSnapshots", DBSnapshotIdentifier=snapshot_id)
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"describe snapshot {snapshot_id!r} failed: {exc}") from exc
+            raise wrap_aws_error(exc, f"describe snapshot {snapshot_id!r} failed") from exc
         snaps = resp.get("DBSnapshots", [])
         if not snaps:
-            raise RuntimeError(f"Snapshot {snapshot_id!r} not found")
+            raise AwsServiceError(f"Snapshot {snapshot_id!r} not found")
         snap = snaps[0]
         if snap["Status"] == target_status:
             return RDSSnapshot(
@@ -430,10 +417,8 @@ async def restore_db_from_snapshot(
             MultiAZ=multi_az,
             PubliclyAccessible=publicly_accessible,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"restore_db_from_snapshot failed: {exc}") from exc
+        raise wrap_aws_error(exc, "restore_db_from_snapshot failed") from exc
     db = resp["DBInstance"]
     return RDSInstance(
         db_instance_id=db["DBInstanceIdentifier"],

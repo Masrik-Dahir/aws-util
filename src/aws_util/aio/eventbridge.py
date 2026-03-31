@@ -7,14 +7,15 @@ from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.eventbridge import EventEntry, PutEventsResult
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 __all__ = [
     "EventEntry",
     "PutEventsResult",
+    "list_rules",
     "put_event",
     "put_events",
     "put_events_chunked",
-    "list_rules",
 ]
 
 
@@ -59,15 +60,22 @@ async def put_events(
 ) -> PutEventsResult:
     """Publish up to 10 events to EventBridge in a single API call.
 
+    On **partial** failures (some events succeed, some fail), a
+    :class:`PutEventsResult` is returned containing both success and failure
+    details.  Only when **all** events fail is an :class:`AwsServiceError`
+    raised.
+
     Args:
         events: List of :class:`EventEntry` objects (up to 10 per call).
         region_name: AWS region override.
 
     Returns:
-        A :class:`PutEventsResult` describing success/failure counts.
+        A :class:`PutEventsResult` describing success/failure counts and
+        any failed entries.
 
     Raises:
-        RuntimeError: If the API call fails or any event is rejected.
+        AwsServiceError: If **all** events fail to publish.
+        RuntimeError: If the underlying API call itself fails.
         ValueError: If more than 10 events are supplied.
     """
     if len(events) > 10:
@@ -86,19 +94,23 @@ async def put_events(
     ]
     try:
         resp = await client.call("PutEvents", Entries=entries)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to put events to EventBridge: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "Failed to put events to EventBridge") from exc
 
     failed = resp.get("FailedEntryCount", 0)
-    if failed:
-        failed_entries = [e for e in resp.get("Entries", []) if e.get("ErrorCode")]
-        raise RuntimeError(f"{failed} event(s) failed to publish: {failed_entries}")
+    failed_entries = [e for e in resp.get("Entries", []) if e.get("ErrorCode")]
+    successful = len(events) - failed
 
-    return PutEventsResult(
+    result = PutEventsResult(
         failed_count=failed,
-        successful_count=len(events) - failed,
+        successful_count=successful,
         entries=resp.get("Entries", []),
     )
+
+    if failed and successful == 0:
+        raise AwsServiceError(f"All {failed} event(s) failed to publish: {failed_entries}")
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -154,5 +166,5 @@ async def list_rules(
     try:
         items = await client.paginate("ListRules", "Rules", EventBusName=event_bus_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"list_rules failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_rules failed") from exc
     return items

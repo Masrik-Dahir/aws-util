@@ -8,6 +8,19 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "KinesisPutResult",
+    "KinesisRecord",
+    "KinesisStream",
+    "consume_stream",
+    "describe_stream",
+    "get_records",
+    "list_streams",
+    "put_record",
+    "put_records",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -80,7 +93,7 @@ def put_record(
             PartitionKey=partition_key,
         )
     except ClientError as exc:
-        raise RuntimeError(f"put_record failed on stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"put_record failed on stream {stream_name!r}") from exc
     return KinesisRecord(
         shard_id=resp["ShardId"],
         sequence_number=resp["SequenceNumber"],
@@ -125,7 +138,7 @@ def put_records(
     try:
         resp = client.put_records(StreamName=stream_name, Records=entries)
     except ClientError as exc:
-        raise RuntimeError(f"put_records failed on stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"put_records failed on stream {stream_name!r}") from exc
     return KinesisPutResult(
         failed_record_count=resp.get("FailedRecordCount", 0),
         records=resp.get("Records", []),
@@ -151,7 +164,7 @@ def list_streams(region_name: str | None = None) -> list[str]:
         for page in paginator.paginate():
             names.extend(page.get("StreamNames", []))
     except ClientError as exc:
-        raise RuntimeError(f"list_streams failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_streams failed") from exc
     return names
 
 
@@ -175,7 +188,7 @@ def describe_stream(
     try:
         resp = client.describe_stream_summary(StreamName=stream_name)
     except ClientError as exc:
-        raise RuntimeError(f"describe_stream failed for {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_stream failed for {stream_name!r}") from exc
     desc = resp["StreamDescriptionSummary"]
     return KinesisStream(
         stream_name=desc["StreamName"],
@@ -224,7 +237,7 @@ def get_records(
         )
         resp = client.get_records(ShardIterator=iter_resp["ShardIterator"], Limit=limit)
     except ClientError as exc:
-        raise RuntimeError(f"get_records failed for {stream_name!r}/{shard_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_records failed for {stream_name!r}/{shard_id!r}") from exc
 
     result = []
     for rec in resp.get("Records", []):
@@ -302,14 +315,14 @@ def consume_stream(
     try:
         client.describe_stream_summary(StreamName=stream_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe stream {stream_name!r}") from exc
 
     shard_ids: list[str] = []
     try:
         shard_resp = client.list_shards(StreamName=stream_name)
         shard_ids = [s["ShardId"] for s in shard_resp.get("Shards", [])]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to list shards for {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to list shards for {stream_name!r}") from exc
 
     total_processed = 0
     deadline = _time.monotonic() + duration_seconds

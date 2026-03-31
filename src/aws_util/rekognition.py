@@ -6,6 +6,25 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "BoundingBox",
+    "FaceMatch",
+    "RekognitionFace",
+    "RekognitionLabel",
+    "RekognitionText",
+    "compare_faces",
+    "create_collection",
+    "delete_collection",
+    "detect_faces",
+    "detect_labels",
+    "detect_moderation_labels",
+    "detect_text",
+    "ensure_collection",
+    "index_face",
+    "search_face_by_image",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -133,7 +152,7 @@ def detect_labels(
             MinConfidence=min_confidence,
         )
     except ClientError as exc:
-        raise RuntimeError(f"detect_labels failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_labels failed") from exc
     return [
         RekognitionLabel(
             name=lbl["Name"],
@@ -173,7 +192,7 @@ def detect_faces(
     try:
         resp = client.detect_faces(Image=image, Attributes=attributes or ["DEFAULT"])
     except ClientError as exc:
-        raise RuntimeError(f"detect_faces failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_faces failed") from exc
 
     faces: list[RekognitionFace] = []
     for fd in resp.get("FaceDetails", []):
@@ -225,7 +244,7 @@ def detect_text(
     try:
         resp = client.detect_text(Image=image)
     except ClientError as exc:
-        raise RuntimeError(f"detect_text failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_text failed") from exc
     return [
         RekognitionText(
             detected_text=td["DetectedText"],
@@ -265,7 +284,7 @@ def compare_faces(
             SimilarityThreshold=similarity_threshold,
         )
     except ClientError as exc:
-        raise RuntimeError(f"compare_faces failed: {exc}") from exc
+        raise wrap_aws_error(exc, "compare_faces failed") from exc
     return [
         FaceMatch(
             similarity=fm["Similarity"],
@@ -305,7 +324,7 @@ def detect_moderation_labels(
     try:
         resp = client.detect_moderation_labels(Image=image, MinConfidence=min_confidence)
     except ClientError as exc:
-        raise RuntimeError(f"detect_moderation_labels failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_moderation_labels failed") from exc
     return [
         RekognitionLabel(
             name=lbl["Name"],
@@ -344,7 +363,7 @@ def create_collection(
     try:
         resp = client.create_collection(CollectionId=collection_id)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create collection {collection_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create collection {collection_id!r}") from exc
     return resp.get("CollectionArn", "")
 
 
@@ -388,10 +407,10 @@ def index_face(
     try:
         resp = client.index_faces(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"index_face failed for collection {collection_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"index_face failed for collection {collection_id!r}") from exc
     records = resp.get("FaceRecords", [])
     if not records:
-        raise RuntimeError("No face detected in the provided image")
+        raise AwsServiceError("No face detected in the provided image")
     return records[0]["Face"]["FaceId"]
 
 
@@ -433,8 +452,8 @@ def search_face_by_image(
             FaceMatchThreshold=face_match_threshold,
         )
     except ClientError as exc:
-        raise RuntimeError(
-            f"search_face_by_image failed for collection {collection_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"search_face_by_image failed for collection {collection_id!r}"
         ) from exc
     return [
         {
@@ -464,7 +483,7 @@ def delete_collection(
     try:
         client.delete_collection(CollectionId=collection_id)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete collection {collection_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete collection {collection_id!r}") from exc
 
 
 def ensure_collection(
@@ -493,7 +512,7 @@ def ensure_collection(
         return resp["CollectionARN"], False
     except ClientError as exc:
         if exc.response["Error"]["Code"] != "ResourceNotFoundException":
-            raise RuntimeError(f"ensure_collection failed for {collection_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"ensure_collection failed for {collection_id!r}") from exc
 
     arn = create_collection(collection_id, region_name=region_name)
     return arn, True

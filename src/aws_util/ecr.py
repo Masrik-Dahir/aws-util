@@ -6,6 +6,19 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import wrap_aws_error
+
+__all__ = [
+    "ECRAuthToken",
+    "ECRImage",
+    "ECRRepository",
+    "describe_repository",
+    "ensure_repository",
+    "get_auth_token",
+    "get_latest_image_tag",
+    "list_images",
+    "list_repositories",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -83,7 +96,7 @@ def get_auth_token(
     try:
         resp = client.get_authorization_token(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"get_auth_token failed: {exc}") from exc
+        raise wrap_aws_error(exc, "get_auth_token failed") from exc
 
     tokens: list[ECRAuthToken] = []
     for auth in resp.get("authorizationData", []):
@@ -138,7 +151,7 @@ def list_repositories(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_repositories failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_repositories failed") from exc
     return repos
 
 
@@ -169,7 +182,7 @@ def describe_repository(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "RepositoryNotFoundException":
             return None
-        raise RuntimeError(f"describe_repository failed for {repository_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_repository failed for {repository_name!r}") from exc
     repos = resp.get("repositories", [])
     if not repos:
         return None
@@ -218,7 +231,7 @@ def list_images(
         for page in paginator.paginate(**kwargs):
             image_ids.extend(page.get("imageIds", []))
     except ClientError as exc:
-        raise RuntimeError(f"list_images failed for {repository_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"list_images failed for {repository_name!r}") from exc
 
     if not image_ids:
         return []
@@ -245,7 +258,7 @@ def list_images(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"describe_images failed for {repository_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_images failed for {repository_name!r}") from exc
     return images
 
 
@@ -286,7 +299,7 @@ def ensure_repository(
             imageScanningConfiguration={"scanOnPush": scan_on_push},
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create ECR repository {repository_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create ECR repository {repository_name!r}") from exc
     repo = resp["repository"]
     return ECRRepository(
         repository_name=repo["repositoryName"],

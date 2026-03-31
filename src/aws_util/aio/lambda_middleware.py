@@ -1,7 +1,6 @@
 """Native async lambda_middleware — Lambda execution & middleware utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 
 Many functions in this module are pure-compute (no AWS API calls) and are
 re-exported directly from the sync module.  Only functions that interact
@@ -15,8 +14,9 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable
+from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.lambda_middleware import (
@@ -62,46 +62,46 @@ from aws_util.lambda_middleware import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "IdempotencyRecord",
-    "BatchProcessingResult",
-    "APIGatewayResponse",
     "APIGatewayEvent",
-    "SQSRecord",
-    "SQSEvent",
-    "SNSMessageDetail",
-    "SNSRecord",
-    "SNSEvent",
-    "S3Object",
-    "S3Bucket",
-    "S3Detail",
-    "S3Record",
-    "S3Event",
-    "EventBridgeEvent",
-    "DynamoDBStreamImage",
-    "DynamoDBStreamRecord",
+    "APIGatewayResponse",
+    "BatchProcessingResult",
     "DynamoDBRecord",
     "DynamoDBStreamEvent",
-    "KinesisData",
-    "KinesisRecord",
-    "KinesisEvent",
+    "DynamoDBStreamImage",
+    "DynamoDBStreamRecord",
+    "EventBridgeEvent",
     "FeatureFlagResult",
-    "idempotent_handler",
+    "IdempotencyRecord",
+    "KinesisData",
+    "KinesisEvent",
+    "KinesisRecord",
+    "S3Bucket",
+    "S3Detail",
+    "S3Event",
+    "S3Object",
+    "S3Record",
+    "SNSEvent",
+    "SNSMessageDetail",
+    "SNSRecord",
+    "SQSEvent",
+    "SQSRecord",
     "batch_processor",
-    "middleware_chain",
-    "lambda_timeout_guard",
     "cold_start_tracker",
-    "lambda_response",
     "cors_preflight",
-    "parse_api_gateway_event",
-    "parse_sqs_event",
-    "parse_sns_event",
-    "parse_s3_event",
-    "parse_eventbridge_event",
-    "parse_dynamodb_stream_event",
-    "parse_kinesis_event",
-    "parse_event",
     "evaluate_feature_flag",
     "evaluate_feature_flags",
+    "idempotent_handler",
+    "lambda_response",
+    "lambda_timeout_guard",
+    "middleware_chain",
+    "parse_api_gateway_event",
+    "parse_dynamodb_stream_event",
+    "parse_event",
+    "parse_eventbridge_event",
+    "parse_kinesis_event",
+    "parse_s3_event",
+    "parse_sns_event",
+    "parse_sqs_event",
 ]
 
 
@@ -260,7 +260,7 @@ def cold_start_tracker(
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
         async def wrapper(event: Any, context: Any) -> Any:
-            global _COLD_START  # noqa: PLW0603
+            global _COLD_START
             is_cold = _COLD_START
             _COLD_START = False
 
@@ -351,4 +351,4 @@ async def evaluate_feature_flags(
             for name in flag_names
         )
     )
-    return dict(zip(flag_names, results))
+    return dict(zip(flag_names, results, strict=False))

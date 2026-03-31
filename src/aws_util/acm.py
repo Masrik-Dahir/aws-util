@@ -6,6 +6,18 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "ACMCertificate",
+    "delete_certificate",
+    "describe_certificate",
+    "find_certificate_by_domain",
+    "get_certificate_pem",
+    "list_certificates",
+    "request_certificate",
+    "wait_for_certificate",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -69,7 +81,7 @@ def list_certificates(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"list_certificates failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_certificates failed") from exc
     return certs
 
 
@@ -95,7 +107,7 @@ def describe_certificate(
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ResourceNotFoundException":
             return None
-        raise RuntimeError(f"describe_certificate failed for {certificate_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_certificate failed for {certificate_arn!r}") from exc
     cert = resp["Certificate"]
     return ACMCertificate(
         certificate_arn=cert["CertificateArn"],
@@ -145,7 +157,7 @@ def request_certificate(
     try:
         resp = client.request_certificate(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to request certificate for {domain_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to request certificate for {domain_name!r}") from exc
     return resp["CertificateArn"]
 
 
@@ -168,7 +180,7 @@ def delete_certificate(
     try:
         client.delete_certificate(CertificateArn=certificate_arn)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete certificate {certificate_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete certificate {certificate_arn!r}") from exc
 
 
 def get_certificate_pem(
@@ -193,7 +205,7 @@ def get_certificate_pem(
     try:
         resp = client.get_certificate(CertificateArn=certificate_arn)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to get certificate PEM for {certificate_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to get certificate PEM for {certificate_arn!r}") from exc
     return resp["Certificate"]
 
 
@@ -238,11 +250,11 @@ def wait_for_certificate(
     while True:
         cert = describe_certificate(certificate_arn, region_name=region_name)
         if cert is None:
-            raise RuntimeError(f"Certificate {certificate_arn!r} not found during wait")
+            raise AwsServiceError(f"Certificate {certificate_arn!r} not found during wait")
         if cert.status == "ISSUED":
             return cert
         if cert.status in _FAILED_STATUSES:
-            raise RuntimeError(
+            raise AwsServiceError(
                 f"Certificate {certificate_arn!r} reached terminal status {cert.status!r}"
             )
         if _time.monotonic() >= deadline:

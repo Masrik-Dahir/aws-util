@@ -1,12 +1,33 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "SQSMessage",
+    "SendMessageResult",
+    "delete_batch",
+    "delete_message",
+    "drain_queue",
+    "get_queue_attributes",
+    "get_queue_url",
+    "purge_queue",
+    "receive_messages",
+    "replay_dlq",
+    "send_batch",
+    "send_large_batch",
+    "send_message",
+    "wait_for_message",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -74,7 +95,7 @@ def get_queue_url(
         resp = client.get_queue_url(QueueName=queue_name)
         return resp["QueueUrl"]
     except ClientError as exc:
-        raise RuntimeError(f"Failed to resolve URL for queue {queue_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to resolve URL for queue {queue_name!r}") from exc
 
 
 def send_message(
@@ -118,7 +139,7 @@ def send_message(
     try:
         resp = client.send_message(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to send message to {queue_url!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to send message to {queue_url!r}") from exc
     return SendMessageResult(
         message_id=resp["MessageId"],
         sequence_number=resp.get("SequenceNumber"),
@@ -159,11 +180,11 @@ def send_batch(
     try:
         resp = client.send_message_batch(QueueUrl=queue_url, Entries=entries)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to send message batch to {queue_url!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to send message batch to {queue_url!r}") from exc
 
     if resp.get("Failed"):
         failures = [f["Message"] for f in resp["Failed"]]
-        raise RuntimeError(f"Batch send partially failed for {queue_url!r}: {failures}")
+        raise AwsServiceError(f"Batch send partially failed for {queue_url!r}: {failures}")
 
     return [
         SendMessageResult(
@@ -208,7 +229,7 @@ def receive_messages(
             MessageAttributeNames=["All"],
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to receive messages from {queue_url!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to receive messages from {queue_url!r}") from exc
 
     return [
         SQSMessage(
@@ -242,7 +263,7 @@ def delete_message(
     try:
         client.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete message from {queue_url!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete message from {queue_url!r}") from exc
 
 
 def delete_batch(
@@ -269,11 +290,11 @@ def delete_batch(
     try:
         resp = client.delete_message_batch(QueueUrl=queue_url, Entries=entries)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete message batch from {queue_url!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete message batch from {queue_url!r}") from exc
 
     if resp.get("Failed"):
         failures = [f["Message"] for f in resp["Failed"]]
-        raise RuntimeError(f"Batch delete partially failed for {queue_url!r}: {failures}")
+        raise AwsServiceError(f"Batch delete partially failed for {queue_url!r}: {failures}")
 
 
 def purge_queue(
@@ -295,7 +316,7 @@ def purge_queue(
     try:
         client.purge_queue(QueueUrl=queue_url)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to purge queue {queue_url!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to purge queue {queue_url!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -367,8 +388,10 @@ def drain_queue(
                 delete_message(queue_url, msg.receipt_handle, region_name=region_name)
                 processed += 1
             except Exception:
-                # Leave message visible again — do not delete
-                pass
+                logger.exception(
+                    "drain_queue handler failed for message %s",
+                    msg.message_id,
+                )
 
     return processed
 
@@ -397,7 +420,17 @@ def replay_dlq(
     """
 
     def _replay(msg: SQSMessage) -> None:
-        send_message(target_url, msg.body, region_name=region_name)
+        kwargs: dict[str, Any] = {
+            "QueueUrl": target_url,
+            "MessageBody": msg.body,
+        }
+        if msg.message_attributes:
+            kwargs["MessageAttributes"] = msg.message_attributes
+        client = get_client("sqs", region_name)
+        try:
+            client.send_message(**kwargs)
+        except ClientError as exc:
+            raise wrap_aws_error(exc, f"Failed to replay message to {target_url!r}") from exc
 
     return drain_queue(
         dlq_url,
@@ -444,6 +477,14 @@ def wait_for_message(
     region_name: str | None = None,
 ) -> SQSMessage | None:
     """Poll a queue until a message matching *predicate* arrives or *timeout* expires.
+
+    .. note::
+
+        Messages that are received but do **not** match *predicate* are
+        neither deleted nor explicitly returned to the queue.  They remain
+        invisible for the duration of *visibility_timeout* and only become
+        available to other consumers once that period expires.  This can
+        delay processing of those messages by other consumers.
 
     Args:
         queue_url: Full SQS queue URL.
@@ -503,14 +544,12 @@ def get_queue_attributes(
     Raises:
         RuntimeError: If the API call fails.
     """
-    from botocore.exceptions import ClientError as _CE
-
     client = get_client("sqs", region_name)
     try:
         resp = client.get_queue_attributes(
             QueueUrl=queue_url,
             AttributeNames=attributes or ["All"],
         )
-    except _CE as exc:
-        raise RuntimeError(f"get_queue_attributes failed for {queue_url!r}: {exc}") from exc
+    except ClientError as exc:
+        raise wrap_aws_error(exc, f"get_queue_attributes failed for {queue_url!r}") from exc
     return resp.get("Attributes", {})

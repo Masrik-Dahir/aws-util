@@ -7,18 +7,19 @@ import json
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.kinesis import KinesisPutResult, KinesisRecord, KinesisStream
 
 __all__ = [
-    "KinesisRecord",
     "KinesisPutResult",
+    "KinesisRecord",
     "KinesisStream",
-    "put_record",
-    "put_records",
-    "list_streams",
+    "consume_stream",
     "describe_stream",
     "get_records",
-    "consume_stream",
+    "list_streams",
+    "put_record",
+    "put_records",
 ]
 
 
@@ -72,7 +73,7 @@ async def put_record(
             PartitionKey=partition_key,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"put_record failed on stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"put_record failed on stream {stream_name!r}") from exc
     return KinesisRecord(
         shard_id=resp["ShardId"],
         sequence_number=resp["SequenceNumber"],
@@ -117,7 +118,7 @@ async def put_records(
         client = async_client("kinesis", region_name)
         resp = await client.call("PutRecords", StreamName=stream_name, Records=entries)
     except RuntimeError as exc:
-        raise RuntimeError(f"put_records failed on stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"put_records failed on stream {stream_name!r}") from exc
     return KinesisPutResult(
         failed_record_count=resp.get("FailedRecordCount", 0),
         records=resp.get("Records", []),
@@ -147,7 +148,7 @@ async def list_streams(
             token_output="NextToken",
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"list_streams failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_streams failed") from exc
     return [str(s) for s in items]
 
 
@@ -171,7 +172,7 @@ async def describe_stream(
         client = async_client("kinesis", region_name)
         resp = await client.call("DescribeStreamSummary", StreamName=stream_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"describe_stream failed for {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"describe_stream failed for {stream_name!r}") from exc
     desc = resp["StreamDescriptionSummary"]
     return KinesisStream(
         stream_name=desc["StreamName"],
@@ -225,7 +226,7 @@ async def get_records(
             Limit=limit,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"get_records failed for {stream_name!r}/{shard_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_records failed for {stream_name!r}/{shard_id!r}") from exc
 
     result: list[dict[str, Any]] = []
     for rec in resp.get("Records", []):
@@ -291,14 +292,14 @@ async def consume_stream(
     try:
         await client.call("DescribeStreamSummary", StreamName=stream_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to describe stream {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe stream {stream_name!r}") from exc
 
     # List shards
     try:
         shard_resp = await client.call("ListShards", StreamName=stream_name)
         shard_ids = [s["ShardId"] for s in shard_resp.get("Shards", [])]
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to list shards for {stream_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to list shards for {stream_name!r}") from exc
 
     deadline = _time.monotonic() + duration_seconds
 

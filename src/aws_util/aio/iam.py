@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.iam import IAMPolicy, IAMRole, IAMUser, _parse_policy, _parse_role
 
 __all__ = [
@@ -64,10 +65,8 @@ async def create_role(
             Description=description,
             Path=path,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create IAM role {role_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create IAM role {role_name!r}") from exc
     return _parse_role(resp["Role"])
 
 
@@ -109,10 +108,8 @@ async def delete_role(
     client = async_client("iam", region_name)
     try:
         await client.call("DeleteRole", RoleName=role_name)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to delete IAM role {role_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete IAM role {role_name!r}") from exc
 
 
 async def list_roles(
@@ -145,10 +142,8 @@ async def list_roles(
             if not resp.get("IsTruncated", False):
                 break
             token = resp.get("Marker")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_roles failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_roles failed") from exc
     return roles
 
 
@@ -174,11 +169,9 @@ async def attach_role_policy(
             RoleName=role_name,
             PolicyArn=policy_arn,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to attach policy {policy_arn!r} to role {role_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to attach policy {policy_arn!r} to role {role_name!r}"
         ) from exc
 
 
@@ -204,11 +197,9 @@ async def detach_role_policy(
             RoleName=role_name,
             PolicyArn=policy_arn,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to detach policy {policy_arn!r} from role {role_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to detach policy {policy_arn!r} from role {role_name!r}"
         ) from exc
 
 
@@ -248,10 +239,8 @@ async def create_policy(
             Description=description,
             Path=path,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create IAM policy {policy_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create IAM policy {policy_name!r}") from exc
     return _parse_policy(resp["Policy"])
 
 
@@ -273,10 +262,8 @@ async def delete_policy(
     client = async_client("iam", region_name)
     try:
         await client.call("DeletePolicy", PolicyArn=policy_arn)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to delete IAM policy {policy_arn!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete IAM policy {policy_arn!r}") from exc
 
 
 async def list_policies(
@@ -315,10 +302,8 @@ async def list_policies(
             if not resp.get("IsTruncated", False):
                 break
             token = resp.get("Marker")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_policies failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_policies failed") from exc
     return policies
 
 
@@ -360,10 +345,8 @@ async def list_users(
             if not resp.get("IsTruncated", False):
                 break
             token = resp.get("Marker")
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"list_users failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_users failed") from exc
     return users
 
 
@@ -425,11 +408,9 @@ async def create_role_with_policies(
                     PolicyName=pol_name,
                     PolicyDocument=json.dumps(pol_doc),
                 )
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to put inline policy {pol_name!r} on role {role_name!r}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to put inline policy {pol_name!r} on role {role_name!r}"
                 ) from exc
 
         await asyncio.gather(

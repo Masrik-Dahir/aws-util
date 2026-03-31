@@ -1,7 +1,6 @@
 """Native async messaging — Messaging & Notification Orchestration utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 
 All Pydantic models are imported from the sync module.
 """
@@ -15,6 +14,7 @@ import time
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 from aws_util.messaging import (
     ChannelConfig,
     ChannelResult,
@@ -31,17 +31,17 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ChannelConfig",
     "ChannelResult",
-    "MultiChannelNotifierResult",
-    "EventDeduplicationResult",
-    "FilterPolicyResult",
-    "FifoMessageResult",
     "DigestEvent",
     "DigestFlushResult",
-    "multi_channel_notifier",
+    "EventDeduplicationResult",
+    "FifoMessageResult",
+    "FilterPolicyResult",
+    "MultiChannelNotifierResult",
+    "batch_notification_digester",
     "event_deduplicator",
+    "multi_channel_notifier",
     "sns_filter_policy_manager",
     "sqs_fifo_sequencer",
-    "batch_notification_digester",
 ]
 
 
@@ -222,7 +222,7 @@ async def event_deduplicator(
             Key={"pk": {"S": f"event#{event_id}"}},
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to check event {event_id}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to check event {event_id}") from exc
 
     if resp.get("Item") is not None:
         logger.info("Event %s is a duplicate", event_id)
@@ -244,7 +244,7 @@ async def event_deduplicator(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to store event {event_id}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to store event {event_id}") from exc
 
     logger.info("Event %s recorded (TTL=%d)", event_id, ttl_value)
     return EventDeduplicationResult(
@@ -304,7 +304,7 @@ async def sns_filter_policy_manager(
                 AttributeValue=json.dumps(filter_policy),
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to set filter policy on {subscription_arn}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to set filter policy on {subscription_arn}") from exc
         logger.info("Set filter policy on %s", subscription_arn)
         return FilterPolicyResult(
             subscription_arn=subscription_arn,
@@ -319,8 +319,8 @@ async def sns_filter_policy_manager(
                 SubscriptionArn=subscription_arn,
             )
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to get filter policy for {subscription_arn}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to get filter policy for {subscription_arn}"
             ) from exc
         attrs = resp.get("Attributes", {})
         raw_policy = attrs.get("FilterPolicy")
@@ -340,8 +340,8 @@ async def sns_filter_policy_manager(
             AttributeValue="{}",
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to remove filter policy from {subscription_arn}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to remove filter policy from {subscription_arn}"
         ) from exc
     logger.info("Removed filter policy from %s", subscription_arn)
     return FilterPolicyResult(
@@ -396,7 +396,7 @@ async def sqs_fifo_sequencer(
             MessageDeduplicationId=deduplication_id,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to send FIFO message to {queue_url}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to send FIFO message to {queue_url}") from exc
 
     logger.info(
         "Sent FIFO message to %s (group=%s, dedup=%s)",
@@ -477,7 +477,7 @@ async def batch_notification_digester(
                 },
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to accumulate event {event.event_id}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to accumulate event {event.event_id}") from exc
         logger.info(
             "Accumulated event %s into digest %s",
             event.event_id,
@@ -509,7 +509,7 @@ async def batch_notification_digester(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to query digest events for {digest_key}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to query digest events for {digest_key}") from exc
 
     items = resp.get("Items", [])
     if not items:
@@ -543,7 +543,7 @@ async def batch_notification_digester(
             )
             message_id = send_resp.get("MessageId")
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to send digest via SNS: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to send digest via SNS") from exc
     else:
         ses = async_client("ses", region_name)
         sender = flush_sender or "noreply@example.com"
@@ -559,7 +559,7 @@ async def batch_notification_digester(
             )
             message_id = send_resp.get("MessageId")
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to send digest via SES: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to send digest via SES") from exc
 
     # Delete accumulated events
     for item in items:

@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
-    "get_parameters_by_path",
-    "get_parameters_batch",
-    "put_parameter",
     "delete_parameter",
     "get_parameter",
+    "get_parameters_batch",
+    "get_parameters_by_path",
+    "put_parameter",
 ]
 
 
@@ -53,7 +54,7 @@ async def get_parameters_by_path(
             WithDecryption=with_decryption,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"get_parameters_by_path failed for path {path!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_parameters_by_path failed for path {path!r}") from exc
     return {p["Name"]: p["Value"] for p in raw_items}
 
 
@@ -87,7 +88,7 @@ async def get_parameters_batch(
             WithDecryption=with_decryption,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"get_parameters_batch failed: {exc}") from exc
+        raise wrap_aws_error(exc, "get_parameters_batch failed") from exc
     return {p["Name"]: p["Value"] for p in resp.get("Parameters", [])}
 
 
@@ -125,7 +126,7 @@ async def put_parameter(
         client = async_client("ssm", region_name)
         await client.call("PutParameter", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to put SSM parameter {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to put SSM parameter {name!r}") from exc
 
 
 async def delete_parameter(
@@ -145,7 +146,7 @@ async def delete_parameter(
         client = async_client("ssm", region_name)
         await client.call("DeleteParameter", Name=name)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete SSM parameter {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete SSM parameter {name!r}") from exc
 
 
 async def get_parameter(
@@ -179,4 +180,4 @@ async def get_parameter(
         resp = await client.call("GetParameter", Name=name, WithDecryption=with_decryption)
         return resp["Parameter"]["Value"]
     except RuntimeError as exc:
-        raise RuntimeError(f"Error resolving SSM parameter {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Error resolving SSM parameter {name!r}") from exc

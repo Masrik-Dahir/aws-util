@@ -1,7 +1,6 @@
 """Native async observability — monitoring & observability utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 
 Pure-compute functions (``StructuredLogger``, ``emit_emf_metric``,
 ``emit_emf_metrics_batch``) are re-exported directly from the sync module
@@ -18,6 +17,7 @@ import time
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.observability import (
     AlarmFactoryResult,
     CanaryResult,
@@ -41,31 +41,31 @@ from aws_util.observability import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "StructuredLogEntry",
-    "TraceResult",
-    "EMFMetricResult",
     "AlarmFactoryResult",
-    "LogInsightsQueryResult",
-    "DashboardResult",
-    "ErrorDigest",
-    "ErrorAggregatorResult",
     "CanaryResult",
+    "DashboardResult",
+    "EMFMetricResult",
+    "ErrorAggregatorResult",
+    "ErrorDigest",
+    "LogInsightsQueryResult",
     "ServiceMapNode",
     "ServiceMapResult",
+    "StructuredLogEntry",
     "StructuredLogger",
-    "create_xray_trace",
+    "TraceResult",
+    "aggregate_errors",
     "batch_put_trace_segments",
+    "build_service_map",
+    "create_canary",
+    "create_dlq_depth_alarm",
+    "create_lambda_alarms",
+    "create_xray_trace",
+    "delete_canary",
     "emit_emf_metric",
     "emit_emf_metrics_batch",
-    "create_lambda_alarms",
-    "create_dlq_depth_alarm",
-    "run_log_insights_query",
     "generate_lambda_dashboard",
-    "aggregate_errors",
-    "create_canary",
-    "delete_canary",
-    "build_service_map",
     "get_trace_summaries",
+    "run_log_insights_query",
 ]
 
 
@@ -116,7 +116,7 @@ async def create_xray_trace(
             TraceSegmentDocuments=[json.dumps(doc)],
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create X-Ray trace for {segment_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create X-Ray trace for {segment_name!r}") from exc
 
     return TraceResult(
         segment_id=segment_id,
@@ -146,7 +146,7 @@ async def batch_put_trace_segments(
     try:
         await client.call("PutTraceSegments", TraceSegmentDocuments=docs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to batch put {len(segments)} trace segments: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to batch put {len(segments)} trace segments") from exc
 
     results: list[TraceResult] = []
     for seg in segments:
@@ -246,7 +246,7 @@ async def create_lambda_alarms(
         try:
             await client.call("PutMetricAlarm", **kwargs)
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to create alarm {alarm_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to create alarm {alarm_name!r}") from exc
 
         results.append(
             AlarmFactoryResult(
@@ -301,7 +301,7 @@ async def create_dlq_depth_alarm(
             AlarmActions=[sns_topic_arn],
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create DLQ depth alarm for {queue_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create DLQ depth alarm for {queue_name!r}") from exc
 
     return AlarmFactoryResult(
         alarm_name=alarm_name,
@@ -354,7 +354,7 @@ async def run_log_insights_query(
             queryString=query_string,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to start Logs Insights query: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to start Logs Insights query") from exc
 
     query_id = start_resp["queryId"]
     deadline = time.monotonic() + max_wait
@@ -365,7 +365,7 @@ async def run_log_insights_query(
         try:
             result_resp = await client.call("GetQueryResults", queryId=query_id)
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to get query results for {query_id}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get query results for {query_id}") from exc
 
         status = result_resp.get("status", "Unknown")
         if status in ("Complete", "Failed", "Cancelled"):
@@ -375,7 +375,7 @@ async def run_log_insights_query(
         raise TimeoutError(f"Logs Insights query {query_id} did not complete within {max_wait}s")
 
     if status == "Failed":
-        raise RuntimeError(f"Logs Insights query {query_id} failed")
+        raise AwsServiceError(f"Logs Insights query {query_id} failed")
 
     rows: list[dict[str, str]] = []
     for result_row in result_resp.get("results", []):
@@ -466,7 +466,7 @@ async def generate_lambda_dashboard(
             DashboardBody=body,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create dashboard {dashboard_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create dashboard {dashboard_name!r}") from exc
 
     arn = resp.get("ResponseMetadata", {}).get(
         "DashboardArn",
@@ -519,7 +519,7 @@ async def aggregate_errors(
             limit=50,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to describe log streams for {log_group_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe log streams for {log_group_name!r}") from exc
 
     error_map: dict[str, ErrorDigest] = {}
     total_errors = 0
@@ -536,7 +536,7 @@ async def aggregate_errors(
                 startFromHead=True,
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to get log events from {stream_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get log events from {stream_name!r}") from exc
 
         for event in events_resp.get("events", []):
             msg = event.get("message", "")
@@ -582,7 +582,7 @@ async def aggregate_errors(
             )
             notification_sent = True
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to publish error digest to {sns_topic_arn}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to publish error digest to {sns_topic_arn}") from exc
 
     return ErrorAggregatorResult(
         log_group=log_group_name,
@@ -630,12 +630,12 @@ async def create_canary(
         "from aws_synthetics.selenium import synthetics_webdriver\n"
         "from aws_synthetics.common import synthetics_logger\n"
         "def handler(event, context):\n"
-        '    url = "{url}"\n'
+        f'    url = "{endpoint}"\n'
         "    browser = synthetics_webdriver.Chrome()\n"
         "    browser.get(url)\n"
         '    synthetics_logger.info("Canary check passed")\n'
         '    return "Successfully completed"\n'
-    ).format(url=endpoint)
+    )
 
     try:
         await client.call(
@@ -652,7 +652,7 @@ async def create_canary(
             RunConfig={"TimeoutInSeconds": 60},
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create canary {canary_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create canary {canary_name!r}") from exc
 
     return CanaryResult(
         canary_name=canary_name,
@@ -682,7 +682,7 @@ async def delete_canary(
     try:
         await client.call("DeleteCanary", Name=canary_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete canary {canary_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete canary {canary_name!r}") from exc
 
     return CanaryResult(
         canary_name=canary_name,
@@ -724,7 +724,7 @@ async def build_service_map(
             EndTime=end_time,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to get X-Ray service graph: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to get X-Ray service graph") from exc
 
     nodes: list[ServiceMapNode] = []
     for service in resp.get("Services", []):
@@ -781,6 +781,6 @@ async def get_trace_summaries(
     try:
         resp = await client.call("GetTraceSummaries", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to get trace summaries: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to get trace summaries") from exc
 
     return resp.get("TraceSummaries", [])

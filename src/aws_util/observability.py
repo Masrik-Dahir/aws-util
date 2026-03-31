@@ -27,8 +27,37 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "AlarmFactoryResult",
+    "CanaryResult",
+    "DashboardResult",
+    "EMFMetricResult",
+    "ErrorAggregatorResult",
+    "ErrorDigest",
+    "LogInsightsQueryResult",
+    "ServiceMapNode",
+    "ServiceMapResult",
+    "StructuredLogEntry",
+    "StructuredLogger",
+    "TraceResult",
+    "aggregate_errors",
+    "batch_put_trace_segments",
+    "build_service_map",
+    "create_canary",
+    "create_dlq_depth_alarm",
+    "create_lambda_alarms",
+    "create_xray_trace",
+    "delete_canary",
+    "emit_emf_metric",
+    "emit_emf_metrics_batch",
+    "generate_lambda_dashboard",
+    "get_trace_summaries",
+    "run_log_insights_query",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -331,7 +360,7 @@ def create_xray_trace(
     try:
         client.put_trace_segments(TraceSegmentDocuments=[json.dumps(doc)])
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create X-Ray trace for {segment_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create X-Ray trace for {segment_name!r}") from exc
 
     return TraceResult(
         segment_id=segment_id,
@@ -363,7 +392,7 @@ def batch_put_trace_segments(
     try:
         client.put_trace_segments(TraceSegmentDocuments=docs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to batch put {len(segments)} trace segments: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to batch put {len(segments)} trace segments") from exc
 
     results: list[TraceResult] = []
     for seg in segments:
@@ -589,7 +618,7 @@ def create_lambda_alarms(
         try:
             client.put_metric_alarm(**kwargs)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to create alarm {alarm_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to create alarm {alarm_name!r}") from exc
 
         results.append(
             AlarmFactoryResult(
@@ -646,7 +675,7 @@ def create_dlq_depth_alarm(
             AlarmActions=[sns_topic_arn],
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create DLQ depth alarm for {queue_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create DLQ depth alarm for {queue_name!r}") from exc
 
     return AlarmFactoryResult(
         alarm_name=alarm_name,
@@ -700,7 +729,7 @@ def run_log_insights_query(
             queryString=query_string,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to start Logs Insights query: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to start Logs Insights query") from exc
 
     query_id = start_resp["queryId"]
     deadline = time.monotonic() + max_wait
@@ -709,7 +738,7 @@ def run_log_insights_query(
         try:
             result_resp = client.get_query_results(queryId=query_id)
         except ClientError as exc:
-            raise RuntimeError(f"Failed to get query results for {query_id}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get query results for {query_id}") from exc
 
         status = result_resp.get("status", "Unknown")
         if status in ("Complete", "Failed", "Cancelled"):
@@ -719,7 +748,7 @@ def run_log_insights_query(
         raise TimeoutError(f"Logs Insights query {query_id} did not complete within {max_wait}s")
 
     if status == "Failed":
-        raise RuntimeError(f"Logs Insights query {query_id} failed")
+        raise AwsServiceError(f"Logs Insights query {query_id} failed")
 
     rows: list[dict[str, str]] = []
     for result_row in result_resp.get("results", []):
@@ -812,7 +841,7 @@ def generate_lambda_dashboard(
             DashboardBody=body,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create dashboard {dashboard_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create dashboard {dashboard_name!r}") from exc
 
     resp.get("DashboardValidationMessages", "")
     # put_dashboard returns validation messages, not ARN directly
@@ -889,7 +918,7 @@ def aggregate_errors(
             limit=50,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to describe log streams for {log_group_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe log streams for {log_group_name!r}") from exc
 
     error_map: dict[str, ErrorDigest] = {}
     total_errors = 0
@@ -905,7 +934,7 @@ def aggregate_errors(
                 startFromHead=True,
             )
         except ClientError as exc:
-            raise RuntimeError(f"Failed to get log events from {stream_name!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to get log events from {stream_name!r}") from exc
 
         for event in events_resp.get("events", []):
             msg = event.get("message", "")
@@ -950,7 +979,7 @@ def aggregate_errors(
             )
             notification_sent = True
         except ClientError as exc:
-            raise RuntimeError(f"Failed to publish error digest to {sns_topic_arn}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to publish error digest to {sns_topic_arn}") from exc
 
     return ErrorAggregatorResult(
         log_group=log_group_name,
@@ -1003,12 +1032,12 @@ def create_canary(
         "from aws_synthetics.selenium import synthetics_webdriver\n"
         "from aws_synthetics.common import synthetics_logger\n"
         "def handler(event, context):\n"
-        '    url = "{url}"\n'
+        f'    url = "{endpoint}"\n'
         "    browser = synthetics_webdriver.Chrome()\n"
         "    browser.get(url)\n"
         '    synthetics_logger.info("Canary check passed")\n'
         '    return "Successfully completed"\n'
-    ).format(url=endpoint)
+    )
 
     try:
         client.create_canary(
@@ -1024,7 +1053,7 @@ def create_canary(
             RunConfig={"TimeoutInSeconds": 60},
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create canary {canary_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create canary {canary_name!r}") from exc
 
     return CanaryResult(
         canary_name=canary_name,
@@ -1054,7 +1083,7 @@ def delete_canary(
     try:
         client.delete_canary(Name=canary_name)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete canary {canary_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete canary {canary_name!r}") from exc
 
     return CanaryResult(
         canary_name=canary_name,
@@ -1098,7 +1127,7 @@ def build_service_map(
             EndTime=end_time,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to get X-Ray service graph: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to get X-Ray service graph") from exc
 
     nodes: list[ServiceMapNode] = []
     for service in resp.get("Services", []):
@@ -1156,6 +1185,6 @@ def get_trace_summaries(
     try:
         resp = client.get_trace_summaries(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to get trace summaries: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to get trace summaries") from exc
 
     return resp.get("TraceSummaries", [])

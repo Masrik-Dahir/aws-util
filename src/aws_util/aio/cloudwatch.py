@@ -4,23 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from aws_util.aio._engine import async_client
 from aws_util.cloudwatch import LogEvent, MetricDatum, MetricDimension
+from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
-    "MetricDimension",
-    "MetricDatum",
     "LogEvent",
-    "put_metric",
-    "put_metrics",
+    "MetricDatum",
+    "MetricDimension",
+    "create_alarm",
     "create_log_group",
     "create_log_stream",
-    "put_log_events",
     "get_log_events",
     "get_metric_statistics",
-    "create_alarm",
+    "put_log_events",
+    "put_metric",
+    "put_metrics",
     "tail_log_stream",
 ]
 
@@ -95,10 +97,8 @@ async def put_metrics(
                 Namespace=namespace,
                 MetricData=metric_data,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to put metrics to namespace {namespace!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to put metrics to namespace {namespace!r}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -187,11 +187,9 @@ async def put_log_events(
             logStreamName=log_stream_name,
             logEvents=log_events,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to put log events to {log_group_name!r}/{log_stream_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to put log events to {log_group_name!r}/{log_stream_name!r}"
         ) from exc
 
 
@@ -233,11 +231,9 @@ async def get_log_events(
 
     try:
         resp = await client.call("GetLogEvents", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to get log events from {log_group_name!r}/{log_stream_name!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to get log events from {log_group_name!r}/{log_stream_name!r}"
         ) from exc
 
     return [
@@ -302,11 +298,9 @@ async def get_metric_statistics(
 
     try:
         resp = await client.call("GetMetricStatistics", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"get_metric_statistics failed for {namespace}/{metric_name}: {exc}"
+        raise wrap_aws_error(
+            exc, f"get_metric_statistics failed for {namespace}/{metric_name}"
         ) from exc
 
     return sorted(
@@ -376,10 +370,8 @@ async def create_alarm(
 
     try:
         await client.call("PutMetricAlarm", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"create_alarm failed for {alarm_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"create_alarm failed for {alarm_name!r}") from exc
 
 
 async def tail_log_stream(

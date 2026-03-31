@@ -13,6 +13,7 @@ from aws_util.ec2 import (
     SecurityGroup,
     _parse_instance,
 )
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 __all__ = [
     "EC2Image",
@@ -79,10 +80,8 @@ async def describe_instances(
             token = resp.get("NextToken")
             if not token:
                 break
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"describe_instances failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_instances failed") from exc
     return instances
 
 
@@ -115,10 +114,8 @@ async def start_instances(
     client = async_client("ec2", region_name)
     try:
         await client.call("StartInstances", InstanceIds=instance_ids)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to start instances {instance_ids}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start instances {instance_ids}") from exc
 
 
 async def stop_instances(
@@ -140,10 +137,8 @@ async def stop_instances(
     client = async_client("ec2", region_name)
     try:
         await client.call("StopInstances", InstanceIds=instance_ids, Force=force)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to stop instances {instance_ids}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to stop instances {instance_ids}") from exc
 
 
 async def reboot_instances(
@@ -162,10 +157,8 @@ async def reboot_instances(
     client = async_client("ec2", region_name)
     try:
         await client.call("RebootInstances", InstanceIds=instance_ids)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to reboot instances {instance_ids}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to reboot instances {instance_ids}") from exc
 
 
 async def terminate_instances(
@@ -186,10 +179,8 @@ async def terminate_instances(
     client = async_client("ec2", region_name)
     try:
         await client.call("TerminateInstances", InstanceIds=instance_ids)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to terminate instances {instance_ids}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to terminate instances {instance_ids}") from exc
 
 
 async def create_image(
@@ -224,10 +215,8 @@ async def create_image(
             Description=description,
             NoReboot=no_reboot,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to create image from {instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create image from {instance_id!r}") from exc
     return resp["ImageId"]
 
 
@@ -261,10 +250,8 @@ async def describe_images(
         kwargs["Filters"] = filters
     try:
         resp = await client.call("DescribeImages", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"describe_images failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_images failed") from exc
     return [
         EC2Image(
             image_id=img["ImageId"],
@@ -303,10 +290,8 @@ async def describe_security_groups(
         kwargs["Filters"] = filters
     try:
         resp = await client.call("DescribeSecurityGroups", **kwargs)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"describe_security_groups failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_security_groups failed") from exc
     return [
         SecurityGroup(
             group_id=sg["GroupId"],
@@ -354,7 +339,7 @@ async def wait_for_instance_state(
     while True:
         instance = await get_instance(instance_id, region_name=region_name)
         if instance is None:
-            raise RuntimeError(f"Instance {instance_id!r} not found")
+            raise AwsServiceError(f"Instance {instance_id!r} not found")
         if instance.state == target_state:
             return instance
         if _time.monotonic() >= deadline:
@@ -439,10 +424,8 @@ async def get_instance_console_output(
     client = async_client("ec2", region_name)
     try:
         resp = await client.call("GetConsoleOutput", InstanceId=instance_id)
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"get_console_output failed for {instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_console_output failed for {instance_id!r}") from exc
     encoded = resp.get("Output", "")
     if not encoded:
         return ""

@@ -7,14 +7,16 @@ import json
 from typing import Any
 
 from aws_util.aio._engine import async_client
-from aws_util.sns import PublishResult
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+from aws_util.sns import FanOutFailure, PublishResult
 
 __all__ = [
+    "FanOutFailure",
     "PublishResult",
+    "create_topic_if_not_exists",
     "publish",
     "publish_batch",
     "publish_fan_out",
-    "create_topic_if_not_exists",
 ]
 
 
@@ -65,8 +67,8 @@ async def publish(
     try:
         client = async_client("sns", region_name)
         resp = await client.call("Publish", **kwargs)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to publish to {topic_arn!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to publish to {topic_arn!r}") from exc
     return PublishResult(
         message_id=resp["MessageId"],
         sequence_number=resp.get("SequenceNumber"),
@@ -110,12 +112,12 @@ async def publish_batch(
             TopicArn=topic_arn,
             PublishBatchRequestEntries=entries,
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to batch-publish to {topic_arn!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to batch-publish to {topic_arn!r}") from exc
 
     if resp.get("Failed"):
         failures = [f.get("Message", f.get("Code")) for f in resp["Failed"]]
-        raise RuntimeError(f"Batch publish partially failed for {topic_arn!r}: {failures}")
+        raise AwsServiceError(f"Batch publish partially failed for {topic_arn!r}: {failures}")
 
     return [
         PublishResult(
@@ -135,28 +137,51 @@ async def publish_fan_out(
     topic_arns: list[str],
     message: str | dict | list,
     subject: str | None = None,
+    max_concurrency: int = 20,
     region_name: str | None = None,
 ) -> list[PublishResult]:
     """Publish the same message to multiple SNS topics concurrently.
 
-    Uses ``asyncio.gather`` to publish in parallel so total latency is bounded
-    by the slowest topic rather than the sum of all topics.
+    Uses ``asyncio`` with a semaphore to cap concurrency so total latency is
+    bounded by the slowest topic rather than the sum of all topics.
 
     Args:
         topic_arns: List of SNS topic ARNs to publish to.
         message: Message payload (dicts/lists are JSON-encoded).
         subject: Optional subject for email subscriptions.
+        max_concurrency: Maximum number of concurrent publish tasks
+            (default ``20``).  Capped to ``len(topic_arns)``.
         region_name: AWS region override.
 
     Returns:
-        A list of :class:`PublishResult` objects in the same order as
-        *topic_arns*.
+        A list of :class:`PublishResult` for **successfully** published topics,
+        in the same order as the corresponding entries in *topic_arns*.
 
     Raises:
-        RuntimeError: If any publish call fails.
+        AwsServiceError: If one or more publishes fail.  The exception message
+            includes details about which topics failed.  Successfully published
+            results are still collected before the exception is raised.
     """
-    tasks = [publish(arn, message, subject, region_name=region_name) for arn in topic_arns]
-    return list(await asyncio.gather(*tasks))
+    sem = asyncio.Semaphore(min(len(topic_arns), max_concurrency))
+    results: dict[int, PublishResult] = {}
+    failures: list[FanOutFailure] = []
+
+    async def _publish(idx: int, arn: str) -> None:
+        async with sem:
+            try:
+                results[idx] = await publish(arn, message, subject, region_name=region_name)
+            except Exception as exc:
+                failures.append(FanOutFailure(topic_arn=arn, error=str(exc)))
+
+    await asyncio.gather(*[_publish(i, arn) for i, arn in enumerate(topic_arns)])
+
+    if failures:
+        failed_arns = [f.topic_arn for f in failures]
+        raise AwsServiceError(
+            f"publish_fan_out failed for {len(failures)}/{len(topic_arns)} topic(s): {failed_arns}"
+        )
+
+    return [results[i] for i in range(len(topic_arns))]
 
 
 async def create_topic_if_not_exists(
@@ -188,14 +213,13 @@ async def create_topic_if_not_exists(
         name += ".fifo"
     kwargs: dict[str, Any] = {"Name": name}
     if fifo:
-        attrs = {"FifoTopic": "true"}
-        attrs.update(attributes or {})
+        attrs = {**(attributes or {}), "FifoTopic": "true"}
         kwargs["Attributes"] = attrs
     elif attributes:
         kwargs["Attributes"] = attributes
     try:
         client = async_client("sns", region_name)
         resp = await client.call("CreateTopic", **kwargs)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create SNS topic {name!r}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to create SNS topic {name!r}") from exc
     return resp["TopicArn"]

@@ -12,6 +12,7 @@ import time
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.networking import VPCConnectivityResult
 
 __all__ = [
@@ -47,7 +48,7 @@ async def _add_routes(
             if "RouteAlreadyExists" in str(exc):
                 created.append(f"{rt_id} -> {destination_cidr} (already exists)")
             else:
-                raise RuntimeError(f"Failed to create route in {rt_id}: {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to create route in {rt_id}") from exc
     return created
 
 
@@ -87,7 +88,7 @@ async def _add_security_group_rules(
                 if "InvalidPermission.Duplicate" in str(exc):
                     added.append(f"{sg_id}: tcp/{port} from {cidr} (already exists)")
                 else:
-                    raise RuntimeError(f"Failed to add SG rule to {sg_id}: {exc}") from exc
+                    raise wrap_aws_error(exc, f"Failed to add SG rule to {sg_id}") from exc
     return added
 
 
@@ -121,7 +122,7 @@ async def _create_dns_record(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create DNS record {record_name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create DNS record {record_name!r}") from exc
 
     return [f"{record_name} -> {target_dns}"]
 
@@ -154,8 +155,8 @@ async def _setup_peering(
             PeerVpcId=acceptor_vpc_id,
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to create VPC peering between {requestor_vpc_id} and {acceptor_vpc_id}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to create VPC peering between {requestor_vpc_id} and {acceptor_vpc_id}"
         ) from exc
 
     pcx = resp["VpcPeeringConnection"]
@@ -168,7 +169,7 @@ async def _setup_peering(
             VpcPeeringConnectionId=pcx_id,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to accept VPC peering {pcx_id}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to accept VPC peering {pcx_id}") from exc
 
     # Wait briefly for the peering to become active.
     status = await _wait_for_peering(client, pcx_id)
@@ -234,18 +235,18 @@ async def _wait_for_peering(
                 VpcPeeringConnectionIds=[pcx_id],
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to describe peering {pcx_id}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to describe peering {pcx_id}") from exc
 
         pcxs = resp.get("VpcPeeringConnections", [])
         if not pcxs:
-            raise RuntimeError(f"Peering connection {pcx_id} not found")
+            raise AwsServiceError(f"Peering connection {pcx_id} not found")
 
         status_code = pcxs[0].get("Status", {}).get("Code", "unknown")
         if status_code == "active":
             return status_code
         if status_code in ("failed", "rejected", "deleted"):
             msg = pcxs[0].get("Status", {}).get("Message", "")
-            raise RuntimeError(f"Peering {pcx_id} reached terminal state {status_code!r}: {msg}")
+            raise AwsServiceError(f"Peering {pcx_id} reached terminal state {status_code!r}: {msg}")
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 f"Peering {pcx_id} did not become active "
@@ -283,13 +284,13 @@ async def _setup_transit_gateway(
             TransitGatewayIds=[transit_gateway_id],
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to describe transit gateway {transit_gateway_id}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to describe transit gateway {transit_gateway_id}"
         ) from exc
 
     tgws = tgw_resp.get("TransitGateways", [])
     if not tgws:
-        raise RuntimeError(f"Transit gateway {transit_gateway_id} not found")
+        raise AwsServiceError(f"Transit gateway {transit_gateway_id} not found")
 
     # Attach requestor VPC.
     req_subnet_ids = await _get_vpc_subnets(client, requestor_vpc_id)
@@ -307,8 +308,8 @@ async def _setup_transit_gateway(
                 client, transit_gateway_id, requestor_vpc_id
             )
         else:
-            raise RuntimeError(
-                f"Failed to attach {requestor_vpc_id} to TGW {transit_gateway_id}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to attach {requestor_vpc_id} to TGW {transit_gateway_id}"
             ) from exc
 
     # Attach acceptor VPC.
@@ -325,8 +326,8 @@ async def _setup_transit_gateway(
         if "DuplicateTransitGatewayAttachment" in str(exc):
             await _find_existing_tgw_attachment(client, transit_gateway_id, acceptor_vpc_id)
         else:
-            raise RuntimeError(
-                f"Failed to attach {acceptor_vpc_id} to TGW {transit_gateway_id}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to attach {acceptor_vpc_id} to TGW {transit_gateway_id}"
             ) from exc
 
     # Update VPC route tables to route through TGW.
@@ -415,13 +416,13 @@ async def _find_existing_tgw_attachment(
             ],
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to find existing TGW attachment for VPC {vpc_id}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to find existing TGW attachment for VPC {vpc_id}"
         ) from exc
 
     attachments = resp.get("TransitGatewayVpcAttachments", [])
     if not attachments:
-        raise RuntimeError(f"No existing TGW attachment found for VPC {vpc_id} on TGW {tgw_id}")
+        raise AwsServiceError(f"No existing TGW attachment found for VPC {vpc_id} on TGW {tgw_id}")
     return attachments[0]["TransitGatewayAttachmentId"]
 
 
@@ -472,8 +473,8 @@ async def _setup_privatelink(
             AcceptanceRequired=False,
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to create VPC endpoint service for NLB {nlb_arn}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to create VPC endpoint service for NLB {nlb_arn}"
         ) from exc
 
     svc_cfg = svc_resp["ServiceConfiguration"]
@@ -506,8 +507,8 @@ async def _setup_privatelink(
     try:
         ep_resp = await client.call("CreateVpcEndpoint", **ep_kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to create VPC interface endpoint in {requestor_vpc_id}: {exc}"
+        raise wrap_aws_error(
+            exc, f"Failed to create VPC interface endpoint in {requestor_vpc_id}"
         ) from exc
 
     endpoint = ep_resp["VpcEndpoint"]
@@ -700,6 +701,6 @@ async def vpc_connectivity_manager(
     except (RuntimeError, ValueError, TimeoutError):
         raise
     except Exception as exc:
-        raise RuntimeError(
-            f"vpc_connectivity_manager failed for {connectivity_type!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"vpc_connectivity_manager failed for {connectivity_type!r}"
         ) from exc

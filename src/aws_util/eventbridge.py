@@ -4,9 +4,19 @@ import json
 from typing import Any
 
 from botocore.exceptions import ClientError
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "EventEntry",
+    "PutEventsResult",
+    "list_rules",
+    "put_event",
+    "put_events",
+    "put_events_chunked",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -32,7 +42,7 @@ class EventEntry(BaseModel):
     event_bus_name: str = "default"
     """Target event bus.  Defaults to the account's default bus."""
 
-    resources: list[str] = []
+    resources: list[str] = Field(default_factory=list)
     """Optional list of ARNs identifying resources involved in the event."""
 
 
@@ -92,15 +102,22 @@ def put_events(
 ) -> PutEventsResult:
     """Publish up to 10 events to EventBridge in a single API call.
 
+    On **partial** failures (some events succeed, some fail), a
+    :class:`PutEventsResult` is returned containing both success and failure
+    details.  Only when **all** events fail is an :class:`AwsServiceError`
+    raised.
+
     Args:
         events: List of :class:`EventEntry` objects (up to 10 per call).
         region_name: AWS region override.
 
     Returns:
-        A :class:`PutEventsResult` describing success/failure counts.
+        A :class:`PutEventsResult` describing success/failure counts and
+        any failed entries.
 
     Raises:
-        RuntimeError: If the API call fails or any event is rejected.
+        AwsServiceError: If **all** events fail to publish.
+        RuntimeError: If the underlying API call itself fails.
         ValueError: If more than 10 events are supplied.
     """
     if len(events) > 10:
@@ -120,18 +137,22 @@ def put_events(
     try:
         resp = client.put_events(Entries=entries)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to put events to EventBridge: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to put events to EventBridge") from exc
 
     failed = resp.get("FailedEntryCount", 0)
-    if failed:
-        failed_entries = [e for e in resp.get("Entries", []) if e.get("ErrorCode")]
-        raise RuntimeError(f"{failed} event(s) failed to publish: {failed_entries}")
+    failed_entries = [e for e in resp.get("Entries", []) if e.get("ErrorCode")]
+    successful = len(events) - failed
 
-    return PutEventsResult(
+    result = PutEventsResult(
         failed_count=failed,
-        successful_count=len(events) - failed,
+        successful_count=successful,
         entries=resp.get("Entries", []),
     )
+
+    if failed and successful == 0:
+        raise AwsServiceError(f"All {failed} event(s) failed to publish: {failed_entries}")
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +204,6 @@ def list_rules(
     Raises:
         RuntimeError: If the API call fails.
     """
-    from botocore.exceptions import ClientError as _ClientError
-
     client = get_client("events", region_name)
     rules: list[dict[str, Any]] = []
     kwargs: dict[str, Any] = {"EventBusName": event_bus_name}
@@ -192,6 +211,6 @@ def list_rules(
         paginator = client.get_paginator("list_rules")
         for page in paginator.paginate(**kwargs):
             rules.extend(page.get("Rules", []))
-    except _ClientError as exc:
-        raise RuntimeError(f"list_rules failed: {exc}") from exc
+    except ClientError as exc:
+        raise wrap_aws_error(exc, "list_rules failed") from exc
     return rules

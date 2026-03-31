@@ -338,6 +338,62 @@ async def test_replay_dlq(monkeypatch):
     assert count == 1
 
 
+async def test_replay_dlq_with_message_attributes(monkeypatch):
+    """replay_dlq forwards message attributes when present."""
+    msg = {
+        "MessageId": "m1",
+        "ReceiptHandle": "rh",
+        "Body": "hi",
+        "MessageAttributes": {"attr1": {"StringValue": "v1", "DataType": "String"}},
+    }
+    call_count = 0
+    captured_send_kw: list[dict] = []
+
+    async def fake_call(op, **kw):
+        nonlocal call_count
+        call_count += 1
+        if op == "ReceiveMessage":
+            if call_count <= 1:
+                return {"Messages": [msg]}
+            return {}
+        if op == "SendMessage":
+            captured_send_kw.append(kw)
+            return {"MessageId": "m2"}
+        return {}
+
+    mc = AsyncMock()
+    mc.call = fake_call
+    monkeypatch.setattr("aws_util.aio.sqs.async_client", lambda *a, **kw: mc)
+    count = await replay_dlq("https://dlq", "https://target", max_messages=1)
+    assert count == 1
+    assert "MessageAttributes" in captured_send_kw[0]
+
+
+async def test_replay_dlq_send_error(monkeypatch):
+    """replay_dlq raises when SendMessage fails."""
+    msg = {"MessageId": "m1", "ReceiptHandle": "rh", "Body": "hi"}
+    call_count = 0
+
+    async def fake_call(op, **kw):
+        nonlocal call_count
+        call_count += 1
+        if op == "ReceiveMessage":
+            if call_count <= 1:
+                return {"Messages": [msg]}
+            return {}
+        if op == "SendMessage":
+            raise RuntimeError("send failed")
+        return {}
+
+    mc = AsyncMock()
+    mc.call = fake_call
+    monkeypatch.setattr("aws_util.aio.sqs.async_client", lambda *a, **kw: mc)
+    # The handler raises, so drain_queue logs the error and doesn't count it
+    # as processed — the message is NOT deleted.
+    count = await replay_dlq("https://dlq", "https://target", max_messages=1)
+    assert count == 0
+
+
 # -- send_large_batch --------------------------------------------------------
 
 async def test_send_large_batch(monkeypatch):

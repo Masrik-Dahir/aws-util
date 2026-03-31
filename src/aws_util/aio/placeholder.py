@@ -12,10 +12,10 @@ from typing import Any
 from aws_util.aio._engine import async_client
 
 __all__ = [
-    "retrieve",
-    "clear_ssm_cache",
-    "clear_secret_cache",
     "clear_all_caches",
+    "clear_secret_cache",
+    "clear_ssm_cache",
+    "retrieve",
 ]
 
 # Matches ${ssm:/myapp/db/username}
@@ -32,7 +32,12 @@ _secret_cache: dict[str, str] = {}
 
 
 async def _resolve_ssm(name: str) -> str:
-    """Cached async wrapper around SSM GetParameter."""
+    """Cached async wrapper around SSM GetParameter.
+
+    Warning: Resolved values are cached for the lifetime of the process.
+    Call :func:`clear_ssm_cache` to force re-resolution after parameter
+    updates.
+    """
     if name in _ssm_cache:
         return _ssm_cache[name]
     client = async_client("ssm")
@@ -43,7 +48,12 @@ async def _resolve_ssm(name: str) -> str:
 
 
 async def _resolve_secret(inner: str) -> str:
-    """Cached async wrapper around Secrets Manager GetSecretValue."""
+    """Cached async wrapper around Secrets Manager GetSecretValue.
+
+    Warning: Resolved values are cached for the lifetime of the process.
+    Call :func:`clear_secret_cache` to force re-resolution after
+    credential rotation.
+    """
     if inner in _secret_cache:
         return _secret_cache[inner]
     # inner may be "name" or "name:json_key"
@@ -93,6 +103,13 @@ def clear_all_caches() -> None:
 async def retrieve(value: Any) -> Any:
     """Resolve AWS placeholder strings embedded in *value*.
 
+    Non-string values pass through unchanged.
+
+    Warning: Resolved values are cached for the lifetime of the process.
+    Call :func:`clear_ssm_cache`, :func:`clear_secret_cache`, or
+    :func:`clear_all_caches` to force re-resolution after credential
+    rotation or parameter updates.
+
     Supported placeholders:
 
     * ``${ssm:/path/to/param}`` -- replaced with the SSM Parameter Store value.
@@ -110,14 +127,12 @@ async def retrieve(value: Any) -> Any:
 
         ${secret:${ssm:/myapp/secret-name}:password}
 
-    Non-string values are returned unchanged.
-
     Args:
         value: Any Python value.  Only ``str`` instances are processed.
 
     Returns:
-        The input with all placeholders replaced, or the original value if it
-        is not a string.
+        The input with all placeholders replaced.  Non-string values are
+        returned unchanged.
     """
     if not isinstance(value, str):
         return value

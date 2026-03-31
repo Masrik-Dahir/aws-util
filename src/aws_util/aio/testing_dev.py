@@ -1,7 +1,6 @@
 """Native async testing_dev — testing & development utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 
 ``lambda_event_generator`` is pure-compute (no AWS calls) and is
 re-exported from the sync module.
@@ -16,6 +15,7 @@ import uuid
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.testing_dev import (
     DynamoDBSeederResult,
     IntegrationTestResult,
@@ -32,17 +32,17 @@ from aws_util.testing_dev import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "LambdaEventResult",
     "DynamoDBSeederResult",
     "IntegrationTestResult",
-    "MockEventSourceResult",
     "InvokeRecordResult",
+    "LambdaEventResult",
+    "MockEventSourceResult",
     "SnapshotTestResult",
-    "lambda_event_generator",
-    "local_dynamodb_seeder",
     "integration_test_harness",
-    "mock_event_source",
+    "lambda_event_generator",
     "lambda_invoke_recorder",
+    "local_dynamodb_seeder",
+    "mock_event_source",
     "snapshot_tester",
 ]
 
@@ -89,8 +89,8 @@ async def local_dynamodb_seeder(
         try:
             await client.call("PutItem", TableName=table_name, Item=ddb_item)
             written += 1
-        except RuntimeError as exc:
-            raise RuntimeError(f"Failed to write item to {table_name}: {exc}") from exc
+        except Exception as exc:
+            raise wrap_aws_error(exc, f"Failed to write item to {table_name}") from exc
 
     logger.info(
         "Seeded %d items into %s (format=%s)",
@@ -141,12 +141,12 @@ async def _test_lambda_invoke(
             FunctionName=function_name,
             Payload=json.dumps(payload),
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"Lambda invoke failed for {function_name}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Lambda invoke failed for {function_name}") from exc
 
     status = resp.get("StatusCode", 0)
     if status != 200:
-        raise RuntimeError(f"Lambda {function_name} returned status {status}")
+        raise AwsServiceError(f"Lambda {function_name} returned status {status}")
 
 
 async def _test_dynamodb_check(
@@ -160,11 +160,11 @@ async def _test_dynamodb_check(
 
     try:
         resp = await ddb.call("GetItem", TableName=table_name, Key=key)
-    except RuntimeError as exc:
-        raise RuntimeError(f"DynamoDB check failed for {table_name}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"DynamoDB check failed for {table_name}") from exc
 
     if "Item" not in resp:
-        raise RuntimeError(f"Item not found in {table_name} for key {key}")
+        raise AwsServiceError(f"Item not found in {table_name} for key {key}")
 
 
 async def _test_sqs_check(
@@ -182,12 +182,12 @@ async def _test_sqs_check(
             QueueUrl=queue_url,
             AttributeNames=["ApproximateNumberOfMessages"],
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"SQS check failed for {queue_url}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"SQS check failed for {queue_url}") from exc
 
     count = int(attrs.get("Attributes", {}).get("ApproximateNumberOfMessages", "0"))
     if count < min_messages:
-        raise RuntimeError(
+        raise AwsServiceError(
             f"SQS {queue_url} has {count} messages, expected at least {min_messages}"
         )
 
@@ -244,8 +244,8 @@ async def integration_test_harness(
     try:
         resp = await cfn.call("CreateStack", **create_kwargs)
         stack_id = resp["StackId"]
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create stack {stack_name}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to create stack {stack_name}") from exc
 
     # Wait for stack creation
     def _stack_created(r: dict[str, Any]) -> bool:
@@ -260,7 +260,7 @@ async def integration_test_harness(
             "ROLLBACK_COMPLETE",
             "ROLLBACK_FAILED",
         ):
-            raise RuntimeError(f"Stack {stack_name} creation failed: {status}")
+            raise AwsServiceError(f"Stack {stack_name} creation failed: {status}")
         return False
 
     try:
@@ -271,8 +271,8 @@ async def integration_test_harness(
             max_wait=300.0,
             StackName=stack_name,
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"Stack {stack_name} creation did not complete: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Stack {stack_name} creation did not complete") from exc
 
     # Run tests
     passed = 0
@@ -303,8 +303,8 @@ async def integration_test_harness(
         try:
             await cfn.call("DeleteStack", StackName=stack_name)
             torn_down = True
-        except RuntimeError as exc:
-            raise RuntimeError(f"Failed to delete stack {stack_name}: {exc}") from exc
+        except Exception as exc:
+            raise wrap_aws_error(exc, f"Failed to delete stack {stack_name}") from exc
 
     return IntegrationTestResult(
         stack_name=stack_name,
@@ -357,8 +357,8 @@ async def mock_event_source(
     try:
         queue_resp = await sqs.call("CreateQueue", QueueName=queue_name)
         queue_url = queue_resp["QueueUrl"]
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create SQS queue {queue_name}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to create SQS queue {queue_name}") from exc
 
     # Get queue ARN
     try:
@@ -368,14 +368,14 @@ async def mock_event_source(
             AttributeNames=["QueueArn"],
         )
         queue_arn = attr_resp["Attributes"]["QueueArn"]
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to get queue ARN for {queue_name}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to get queue ARN for {queue_name}") from exc
 
     # Create S3 bucket
     try:
         await s3.call("CreateBucket", Bucket=bucket_name)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create S3 bucket {bucket_name}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to create S3 bucket {bucket_name}") from exc
 
     # Create event source mapping (SQS -> Lambda)
     try:
@@ -386,8 +386,8 @@ async def mock_event_source(
             BatchSize=10,
         )
         esm_uuid = esm_resp["UUID"]
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create event source mapping: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, "Failed to create event source mapping") from exc
 
     logger.info(
         "Created mock event source: bucket=%s, queue=%s, func=%s",
@@ -451,8 +451,8 @@ async def lambda_invoke_recorder(
             FunctionName=function_name,
             Payload=json.dumps(payload),
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to invoke {function_name}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to invoke {function_name}") from exc
 
     resp_payload: Any = resp.get("Payload")
     if hasattr(resp_payload, "read"):
@@ -486,8 +486,8 @@ async def lambda_invoke_recorder(
                 ContentType="application/json",
             )
             targets.append(f"s3://{storage_bucket}/{key}")
-        except RuntimeError as exc:
-            raise RuntimeError(f"Failed to store recording to S3: {exc}") from exc
+        except Exception as exc:
+            raise wrap_aws_error(exc, "Failed to store recording to S3") from exc
 
     # Store to DynamoDB
     if storage_table:
@@ -505,8 +505,8 @@ async def lambda_invoke_recorder(
                 },
             )
             targets.append(f"dynamodb://{storage_table}")
-        except RuntimeError as exc:
-            raise RuntimeError(f"Failed to store recording to DynamoDB: {exc}") from exc
+        except Exception as exc:
+            raise wrap_aws_error(exc, "Failed to store recording to DynamoDB") from exc
 
     logger.info(
         "Recorded invocation for %s: %s",
@@ -566,8 +566,8 @@ async def snapshot_tester(
             FunctionName=function_name,
             Payload=json.dumps(payload),
         )
-    except RuntimeError as exc:
-        raise RuntimeError(f"Failed to invoke {function_name}: {exc}") from exc
+    except Exception as exc:
+        raise wrap_aws_error(exc, f"Failed to invoke {function_name}") from exc
 
     resp_payload: Any = resp.get("Payload")
     if hasattr(resp_payload, "read"):
@@ -601,8 +601,8 @@ async def snapshot_tester(
                     Body=current_json,
                     ContentType="application/json",
                 )
-            except RuntimeError as put_exc:
-                raise RuntimeError(f"Failed to create baseline snapshot: {put_exc}") from put_exc
+            except Exception as put_exc:
+                raise wrap_aws_error(put_exc, "Failed to create baseline snapshot") from put_exc
             logger.info(
                 "Created baseline snapshot for %s at s3://%s/%s",
                 function_name,
@@ -614,7 +614,7 @@ async def snapshot_tester(
                 snapshot_key=snapshot_key,
                 matches=True,
             )
-        raise RuntimeError(f"Failed to fetch baseline snapshot: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to fetch baseline snapshot") from exc
 
     # Compare
     matches = current_json == baseline_json
@@ -647,8 +647,8 @@ async def snapshot_tester(
             )
             alert_sent = True
             message_id = sns_resp.get("MessageId")
-        except RuntimeError as exc:
-            raise RuntimeError(f"Failed to publish snapshot alert: {exc}") from exc
+        except Exception as exc:
+            raise wrap_aws_error(exc, "Failed to publish snapshot alert") from exc
 
     return SnapshotTestResult(
         function_name=function_name,

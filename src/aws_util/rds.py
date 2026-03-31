@@ -7,6 +7,22 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "RDSInstance",
+    "RDSSnapshot",
+    "create_db_snapshot",
+    "delete_db_snapshot",
+    "describe_db_instances",
+    "describe_db_snapshots",
+    "get_db_instance",
+    "restore_db_from_snapshot",
+    "start_db_instance",
+    "stop_db_instance",
+    "wait_for_db_instance",
+    "wait_for_snapshot",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -87,7 +103,7 @@ def describe_db_instances(
             for page in paginator.paginate(**page_kwargs):
                 instances.extend(_parse_instances(page))
     except ClientError as exc:
-        raise RuntimeError(f"describe_db_instances failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_db_instances failed") from exc
     return instances
 
 
@@ -143,7 +159,7 @@ def start_db_instance(
     try:
         client.start_db_instance(DBInstanceIdentifier=db_instance_id)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to start RDS instance {db_instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start RDS instance {db_instance_id!r}") from exc
 
 
 def stop_db_instance(
@@ -165,7 +181,7 @@ def stop_db_instance(
     try:
         client.stop_db_instance(DBInstanceIdentifier=db_instance_id)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to stop RDS instance {db_instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to stop RDS instance {db_instance_id!r}") from exc
 
 
 def create_db_snapshot(
@@ -193,7 +209,7 @@ def create_db_snapshot(
             DBSnapshotIdentifier=snapshot_id,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create snapshot for {db_instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create snapshot for {db_instance_id!r}") from exc
     snap = resp["DBSnapshot"]
     return RDSSnapshot(
         snapshot_id=snap["DBSnapshotIdentifier"],
@@ -223,7 +239,7 @@ def delete_db_snapshot(
     try:
         client.delete_db_snapshot(DBSnapshotIdentifier=snapshot_id)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to delete snapshot {snapshot_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete snapshot {snapshot_id!r}") from exc
 
 
 def describe_db_snapshots(
@@ -266,7 +282,7 @@ def describe_db_snapshots(
                     )
                 )
     except ClientError as exc:
-        raise RuntimeError(f"describe_db_snapshots failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_db_snapshots failed") from exc
     return snapshots
 
 
@@ -306,7 +322,7 @@ def wait_for_db_instance(
     while True:
         instance = get_db_instance(db_instance_id, region_name=region_name)
         if instance is None:
-            raise RuntimeError(f"DB instance {db_instance_id!r} not found")
+            raise AwsServiceError(f"DB instance {db_instance_id!r} not found")
         if instance.status == target_status:
             return instance
         if _time.monotonic() >= deadline:
@@ -348,10 +364,10 @@ def wait_for_snapshot(
         try:
             resp = client.describe_db_snapshots(DBSnapshotIdentifier=snapshot_id)
         except ClientError as exc:
-            raise RuntimeError(f"describe snapshot {snapshot_id!r} failed: {exc}") from exc
+            raise wrap_aws_error(exc, f"describe snapshot {snapshot_id!r} failed") from exc
         snaps = resp.get("DBSnapshots", [])
         if not snaps:
-            raise RuntimeError(f"Snapshot {snapshot_id!r} not found")
+            raise AwsServiceError(f"Snapshot {snapshot_id!r} not found")
         snap = snaps[0]
         if snap["Status"] == target_status:
             return RDSSnapshot(
@@ -407,7 +423,7 @@ def restore_db_from_snapshot(
             PubliclyAccessible=publicly_accessible,
         )
     except ClientError as exc:
-        raise RuntimeError(f"restore_db_from_snapshot failed: {exc}") from exc
+        raise wrap_aws_error(exc, "restore_db_from_snapshot failed") from exc
     db = resp["DBInstance"]
     return RDSInstance(
         db_instance_id=db["DBInstanceIdentifier"],

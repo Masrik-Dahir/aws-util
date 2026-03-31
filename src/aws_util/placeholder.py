@@ -7,6 +7,13 @@ from typing import Any
 from aws_util.parameter_store import get_parameter
 from aws_util.secrets_manager import get_secret
 
+__all__ = [
+    "clear_all_caches",
+    "clear_secret_cache",
+    "clear_ssm_cache",
+    "retrieve",
+]
+
 # Matches ${ssm:/myapp/db/username}
 _SSM_PATTERN = re.compile(r"\$\{ssm:([^}]+)\}")
 
@@ -16,15 +23,29 @@ _SSM_PATTERN = re.compile(r"\$\{ssm:([^}]+)\}")
 _SECRET_PATTERN = re.compile(r"\$\{secret:([^}]+)\}")
 
 
+# 256 entries balances memory usage for typical Lambda/ECS workloads
+# with up to ~200 distinct parameters.
 @lru_cache(maxsize=256)
 def _resolve_ssm(name: str) -> str:
-    """Cached wrapper around :func:`~aws_util.parameter_store.get_parameter`."""
+    """Cached wrapper around :func:`~aws_util.parameter_store.get_parameter`.
+
+    Warning: Resolved values are cached for the lifetime of the process.
+    Call :func:`clear_ssm_cache` to force re-resolution after parameter
+    updates.
+    """
     return get_parameter(name, with_decryption=True)
 
 
+# 256 entries balances memory usage for typical Lambda/ECS workloads
+# with up to ~200 distinct parameters.
 @lru_cache(maxsize=256)
 def _resolve_secret(inner: str) -> str:
-    """Cached wrapper around :func:`~aws_util.secrets_manager.get_secret`."""
+    """Cached wrapper around :func:`~aws_util.secrets_manager.get_secret`.
+
+    Warning: Resolved values are cached for the lifetime of the process.
+    Call :func:`clear_secret_cache` to force re-resolution after
+    credential rotation.
+    """
     return get_secret(inner)
 
 
@@ -54,6 +75,13 @@ def clear_all_caches() -> None:
 def retrieve(value: Any) -> Any:
     """Resolve AWS placeholder strings embedded in *value*.
 
+    Non-string values pass through unchanged.
+
+    Warning: Resolved values are cached for the lifetime of the process.
+    Call :func:`clear_ssm_cache`, :func:`clear_secret_cache`, or
+    :func:`clear_all_caches` to force re-resolution after credential
+    rotation or parameter updates.
+
     Supported placeholders:
 
     * ``${ssm:/path/to/param}`` — replaced with the SSM Parameter Store value.
@@ -71,14 +99,12 @@ def retrieve(value: Any) -> Any:
 
         ${secret:${ssm:/myapp/secret-name}:password}
 
-    Non-string values are returned unchanged.
-
     Args:
         value: Any Python value.  Only ``str`` instances are processed.
 
     Returns:
-        The input with all placeholders replaced, or the original value if it
-        is not a string.
+        The input with all placeholders replaced.  Non-string values are
+        returned unchanged.
     """
     if not isinstance(value, str):
         return value

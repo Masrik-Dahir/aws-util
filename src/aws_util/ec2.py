@@ -7,6 +7,26 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
 from aws_util._client import get_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
+
+__all__ = [
+    "EC2Image",
+    "EC2Instance",
+    "SecurityGroup",
+    "create_image",
+    "describe_images",
+    "describe_instances",
+    "describe_security_groups",
+    "get_instance",
+    "get_instance_console_output",
+    "get_instances_by_tag",
+    "get_latest_ami",
+    "reboot_instances",
+    "start_instances",
+    "stop_instances",
+    "terminate_instances",
+    "wait_for_instance_state",
+]
 
 # ---------------------------------------------------------------------------
 # Models
@@ -115,7 +135,7 @@ def describe_instances(
                 for inst in reservation["Instances"]:
                     instances.append(_parse_instance(inst))
     except ClientError as exc:
-        raise RuntimeError(f"describe_instances failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_instances failed") from exc
     return instances
 
 
@@ -149,7 +169,7 @@ def start_instances(
     try:
         client.start_instances(InstanceIds=instance_ids)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to start instances {instance_ids}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to start instances {instance_ids}") from exc
 
 
 def stop_instances(
@@ -172,7 +192,7 @@ def stop_instances(
     try:
         client.stop_instances(InstanceIds=instance_ids, Force=force)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to stop instances {instance_ids}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to stop instances {instance_ids}") from exc
 
 
 def reboot_instances(
@@ -192,7 +212,7 @@ def reboot_instances(
     try:
         client.reboot_instances(InstanceIds=instance_ids)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to reboot instances {instance_ids}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to reboot instances {instance_ids}") from exc
 
 
 def terminate_instances(
@@ -214,7 +234,7 @@ def terminate_instances(
     try:
         client.terminate_instances(InstanceIds=instance_ids)
     except ClientError as exc:
-        raise RuntimeError(f"Failed to terminate instances {instance_ids}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to terminate instances {instance_ids}") from exc
 
 
 def create_image(
@@ -249,7 +269,7 @@ def create_image(
             NoReboot=no_reboot,
         )
     except ClientError as exc:
-        raise RuntimeError(f"Failed to create image from {instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create image from {instance_id!r}") from exc
     return resp["ImageId"]
 
 
@@ -284,7 +304,7 @@ def describe_images(
     try:
         resp = client.describe_images(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"describe_images failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_images failed") from exc
     return [
         EC2Image(
             image_id=img["ImageId"],
@@ -324,7 +344,7 @@ def describe_security_groups(
     try:
         resp = client.describe_security_groups(**kwargs)
     except ClientError as exc:
-        raise RuntimeError(f"describe_security_groups failed: {exc}") from exc
+        raise wrap_aws_error(exc, "describe_security_groups failed") from exc
     return [
         SecurityGroup(
             group_id=sg["GroupId"],
@@ -372,7 +392,7 @@ def wait_for_instance_state(
     while True:
         instance = get_instance(instance_id, region_name=region_name)
         if instance is None:
-            raise RuntimeError(f"Instance {instance_id!r} not found")
+            raise AwsServiceError(f"Instance {instance_id!r} not found")
         if instance.state == target_state:
             return instance
         if _time.monotonic() >= deadline:
@@ -459,7 +479,7 @@ def get_instance_console_output(
     try:
         resp = client.get_console_output(InstanceId=instance_id)
     except ClientError as exc:
-        raise RuntimeError(f"get_console_output failed for {instance_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"get_console_output failed for {instance_id!r}") from exc
     encoded = resp.get("Output", "")
     if not encoded:
         return ""

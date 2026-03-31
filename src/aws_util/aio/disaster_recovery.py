@@ -1,7 +1,6 @@
 """Native async disaster_recovery -- DR and backup compliance.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 
 All Pydantic models are imported from the sync module.
 """
@@ -11,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from aws_util.aio._engine import async_client
@@ -19,14 +18,15 @@ from aws_util.disaster_recovery import (
     BackupComplianceResult,
     DROrchestrationResult,
 )
+from aws_util.exceptions import wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "DROrchestrationResult",
     "BackupComplianceResult",
-    "disaster_recovery_orchestrator",
+    "DROrchestrationResult",
     "backup_compliance_manager",
+    "disaster_recovery_orchestrator",
 ]
 
 
@@ -259,7 +259,7 @@ async def disaster_recovery_orchestrator(
         except RuntimeError as exc:
             step["status"] = "failed"
             step["error"] = str(exc)
-            raise RuntimeError(f"Failed to promote RDS replica {rds_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to promote RDS replica {rds_id!r}") from exc
         finally:
             failover_steps.append(step)
 
@@ -276,7 +276,7 @@ async def disaster_recovery_orchestrator(
                 TableName=table,
                 Item={
                     "pk": {"S": "__dr_verification__"},
-                    "sk": {"S": datetime.now(timezone.utc).isoformat()},
+                    "sk": {"S": datetime.now(UTC).isoformat()},
                     "type": {"S": "failover_test"},
                 },
             )
@@ -284,8 +284,9 @@ async def disaster_recovery_orchestrator(
         except RuntimeError as exc:
             step["status"] = "failed"
             step["error"] = str(exc)
-            raise RuntimeError(
-                f"Failed to verify DynamoDB write to {table!r} in {secondary_region}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"Failed to verify DynamoDB write to {table!r} in {secondary_region}",
             ) from exc
         finally:
             failover_steps.append(step)
@@ -329,8 +330,9 @@ async def disaster_recovery_orchestrator(
             except RuntimeError as exc:
                 step["status"] = "failed"
                 step["error"] = str(exc)
-                raise RuntimeError(
-                    f"Failed to update Route53 record {record_name!r}: {exc}"
+                raise wrap_aws_error(
+                    exc,
+                    f"Failed to update Route53 record {record_name!r}",
                 ) from exc
             finally:
                 failover_steps.append(step)
@@ -344,7 +346,7 @@ async def disaster_recovery_orchestrator(
                 "primary_region": primary_region,
                 "secondary_region": secondary_region,
                 "readiness_score": readiness_score,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "failover_steps": failover_steps,
             }
         )
@@ -364,8 +366,9 @@ async def disaster_recovery_orchestrator(
         except RuntimeError as exc:
             step["status"] = "failed"
             step["error"] = str(exc)
-            raise RuntimeError(
-                f"Failed to send DR notification to {sns_topic_arn!r}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"Failed to send DR notification to {sns_topic_arn!r}",
             ) from exc
         finally:
             failover_steps.append(step)
@@ -440,7 +443,7 @@ async def backup_compliance_manager(
 
     backup = async_client("backup", region_name)
     cutoff = time.time() - (required_backup_window_hours * 3600)
-    cutoff_dt = datetime.fromtimestamp(cutoff, tz=timezone.utc)
+    cutoff_dt = datetime.fromtimestamp(cutoff, tz=UTC)
 
     total_scanned = 0
     compliant_count = 0
@@ -456,7 +459,7 @@ async def backup_compliance_manager(
         try:
             resp = await ddb.call("ListTables")
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to list DynamoDB tables: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to list DynamoDB tables") from exc
         for table_name in resp.get("TableNames", []):
             try:
                 t_resp = await ddb.call(
@@ -464,8 +467,9 @@ async def backup_compliance_manager(
                     TableName=table_name,
                 )
             except RuntimeError as exc:
-                raise RuntimeError(
-                    f"Failed to describe DynamoDB table {table_name!r}: {exc}"
+                raise wrap_aws_error(
+                    exc,
+                    f"Failed to describe DynamoDB table {table_name!r}",
                 ) from exc
             arn = t_resp["Table"]["TableArn"]
             resource_arns.append((f"dynamodb:{table_name}", arn))
@@ -475,7 +479,7 @@ async def backup_compliance_manager(
         try:
             resp = await rds.call("DescribeDBInstances")
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to list RDS instances: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to list RDS instances") from exc
         for inst in resp.get("DBInstances", []):
             arn = inst["DBInstanceArn"]
             name = inst["DBInstanceIdentifier"]
@@ -486,7 +490,7 @@ async def backup_compliance_manager(
         try:
             resp = await ec2.call("DescribeVolumes")
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to list EBS volumes: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to list EBS volumes") from exc
         for vol in resp.get("Volumes", []):
             vol_id = vol["VolumeId"]
             arn = f"arn:aws:ec2:{region_name or 'us-east-1'}::volume/{vol_id}"
@@ -502,8 +506,9 @@ async def backup_compliance_manager(
                 MaxResults=1,
             )
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to list recovery points for {resource_label!r}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"Failed to list recovery points for {resource_label!r}",
             ) from exc
 
         points = resp.get("RecoveryPoints", [])
@@ -529,7 +534,7 @@ async def backup_compliance_manager(
 
     # Generate compliance report
     report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "required_backup_window_hours": (required_backup_window_hours),
         "total_resources_scanned": total_scanned,
         "compliant_count": compliant_count,
@@ -544,7 +549,7 @@ async def backup_compliance_manager(
     if s3_report_bucket is not None:
         s3 = async_client("s3", region_name)
         prefix = s3_report_prefix or "backup-compliance"
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         report_key = (
             f"{prefix}/{now_utc.strftime('%Y/%m/%d')}/report-{now_utc.strftime('%H%M%S')}.json"
         )
@@ -558,8 +563,9 @@ async def backup_compliance_manager(
             )
             report_s3_location = f"s3://{s3_report_bucket}/{report_key}"
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to store compliance report in s3://{s3_report_bucket}/{report_key}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"Failed to store compliance report in s3://{s3_report_bucket}/{report_key}",
             ) from exc
 
     # Send SNS alert for non-compliant resources
@@ -570,7 +576,7 @@ async def backup_compliance_manager(
                 "event": "backup_non_compliance",
                 "non_compliant_resources": non_compliant,
                 "required_backup_window_hours": (required_backup_window_hours),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
         try:
@@ -582,8 +588,9 @@ async def backup_compliance_manager(
             )
             alerts_sent += 1
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to send compliance alert to {sns_topic_arn!r}: {exc}"
+            raise wrap_aws_error(
+                exc,
+                f"Failed to send compliance alert to {sns_topic_arn!r}",
             ) from exc
 
     logger.info(

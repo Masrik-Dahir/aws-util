@@ -6,14 +6,15 @@ import json
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
     "create_secret",
-    "update_secret",
     "delete_secret",
+    "get_secret",
     "list_secrets",
     "rotate_secret",
-    "get_secret",
+    "update_secret",
 ]
 
 
@@ -59,7 +60,7 @@ async def create_secret(
         client = async_client("secretsmanager", region_name)
         resp = await client.call("CreateSecret", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create secret {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create secret {name!r}") from exc
     return resp["ARN"]
 
 
@@ -83,7 +84,7 @@ async def update_secret(
         client = async_client("secretsmanager", region_name)
         await client.call("UpdateSecret", SecretId=name, SecretString=raw)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to update secret {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to update secret {name!r}") from exc
 
 
 async def delete_secret(
@@ -114,7 +115,7 @@ async def delete_secret(
         client = async_client("secretsmanager", region_name)
         await client.call("DeleteSecret", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete secret {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete secret {name!r}") from exc
 
 
 async def list_secrets(
@@ -145,7 +146,7 @@ async def list_secrets(
             **kwargs,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"list_secrets failed: {exc}") from exc
+        raise wrap_aws_error(exc, "list_secrets failed") from exc
     return [
         {
             "name": s["Name"],
@@ -194,7 +195,7 @@ async def rotate_secret(
         client = async_client("secretsmanager", region_name)
         await client.call("RotateSecret", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to rotate secret {name!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to rotate secret {name!r}") from exc
 
 
 async def get_secret(
@@ -241,7 +242,7 @@ async def get_secret(
         client = async_client("secretsmanager", region_name)
         resp = await client.call("GetSecretValue", SecretId=secret_id)
     except RuntimeError as exc:
-        raise RuntimeError(f"Error resolving secret {secret_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Error resolving secret {secret_id!r}") from exc
 
     secret_str: str = (
         resp["SecretString"] if "SecretString" in resp else resp["SecretBinary"].decode("utf-8")
@@ -253,8 +254,8 @@ async def get_secret(
     try:
         data: dict[str, Any] = json.loads(secret_str)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            f"Secret {secret_id!r} is not valid JSON; cannot extract key {json_key!r}"
+        raise wrap_aws_error(
+            exc, f"Secret {secret_id!r} is not valid JSON; cannot extract key {json_key!r}"
         ) from exc
 
     if json_key not in data:

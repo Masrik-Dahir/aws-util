@@ -30,19 +30,20 @@ from aws_util.data_lake import (
     _classify_changes,
     _evaluate_check,
 )
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "SchemaChange",
-    "SchemaEvolutionResult",
     "AuditFinding",
-    "LakeFormationAccessResult",
     "CheckResult",
     "DataQualityResult",
-    "schema_evolution_manager",
-    "lake_formation_access_manager",
+    "LakeFormationAccessResult",
+    "SchemaChange",
+    "SchemaEvolutionResult",
     "data_quality_pipeline",
+    "lake_formation_access_manager",
+    "schema_evolution_manager",
 ]
 
 
@@ -96,11 +97,9 @@ async def schema_evolution_manager(
                 DatabaseName=database_name,
                 Name=table_name,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to get Glue table {database_name}.{table_name}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to get Glue table {database_name}.{table_name}"
             ) from exc
 
         table_def = table_resp["Table"]
@@ -132,11 +131,9 @@ async def schema_evolution_manager(
                 )
                 table_updated = True
                 schema_version += 1
-            except RuntimeError:
-                raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to update Glue table {database_name}.{table_name}: {exc}"
+                raise wrap_aws_error(
+                    exc, f"Failed to update Glue table {database_name}.{table_name}"
                 ) from exc
 
         # Notify on breaking changes
@@ -182,11 +179,9 @@ async def schema_evolution_manager(
             table_updated=table_updated,
             notification_sent=notification_sent,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"schema_evolution_manager failed for {database_name}.{table_name}: {exc}"
+        raise wrap_aws_error(
+            exc, f"schema_evolution_manager failed for {database_name}.{table_name}"
         ) from exc
 
 
@@ -429,8 +424,8 @@ async def lake_formation_access_manager(
     except (RuntimeError, ValueError):
         raise
     except Exception as exc:
-        raise RuntimeError(
-            f"lake_formation_access_manager failed for {database_name}: {exc}"
+        raise wrap_aws_error(
+            exc, f"lake_formation_access_manager failed for {database_name}"
         ) from exc
 
 
@@ -453,33 +448,29 @@ async def _run_athena_check_async(
             QueryExecutionContext={"Database": database_name},
             WorkGroup=workgroup,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to start Athena check query: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to start Athena check query") from exc
 
     qid = start_resp["QueryExecutionId"]
     deadline = time.monotonic() + 300.0
 
     while True:
         if time.monotonic() > deadline:
-            raise RuntimeError(f"Athena check query {qid!r} timed out")
+            raise AwsServiceError(f"Athena check query {qid!r} timed out")
         try:
             status_resp = await athena.call(
                 "GetQueryExecution",
                 QueryExecutionId=qid,
             )
-        except RuntimeError:
-            raise
         except Exception as exc:
-            raise RuntimeError(f"Failed to poll Athena query {qid!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to poll Athena query {qid!r}") from exc
 
         state = status_resp["QueryExecution"]["Status"]["State"]
         if state == "SUCCEEDED":
             break
         if state in ("FAILED", "CANCELLED"):
             reason = status_resp["QueryExecution"]["Status"].get("StateChangeReason", "unknown")
-            raise RuntimeError(f"Athena check query {qid!r} {state}: {reason}")
+            raise AwsServiceError(f"Athena check query {qid!r} {state}: {reason}")
         await asyncio.sleep(2.0)
 
     try:
@@ -488,10 +479,8 @@ async def _run_athena_check_async(
             QueryExecutionId=qid,
             MaxResults=2,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to fetch results for {qid!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to fetch results for {qid!r}") from exc
 
     rows = results.get("ResultSet", {}).get("Rows", [])
     if len(rows) < 2:
@@ -851,9 +840,7 @@ async def data_quality_pipeline(
             alerts_sent=alerts_sent,
             metrics_published=metrics_published,
         )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"data_quality_pipeline failed for {database_name}.{table_name}: {exc}"
+        raise wrap_aws_error(
+            exc, f"data_quality_pipeline failed for {database_name}.{table_name}"
         ) from exc

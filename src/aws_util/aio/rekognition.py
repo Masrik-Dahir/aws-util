@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.rekognition import (
     BoundingBox,
     FaceMatch,
@@ -15,20 +16,20 @@ from aws_util.rekognition import (
 
 __all__ = [
     "BoundingBox",
-    "RekognitionLabel",
-    "RekognitionFace",
-    "RekognitionText",
     "FaceMatch",
-    "detect_labels",
-    "detect_faces",
-    "detect_text",
+    "RekognitionFace",
+    "RekognitionLabel",
+    "RekognitionText",
     "compare_faces",
-    "detect_moderation_labels",
     "create_collection",
+    "delete_collection",
+    "detect_faces",
+    "detect_labels",
+    "detect_moderation_labels",
+    "detect_text",
+    "ensure_collection",
     "index_face",
     "search_face_by_image",
-    "delete_collection",
-    "ensure_collection",
 ]
 
 
@@ -103,7 +104,7 @@ async def detect_labels(
             MinConfidence=min_confidence,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"detect_labels failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_labels failed") from exc
     return [
         RekognitionLabel(
             name=lbl["Name"],
@@ -147,7 +148,7 @@ async def detect_faces(
             Attributes=attributes or ["DEFAULT"],
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"detect_faces failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_faces failed") from exc
 
     faces: list[RekognitionFace] = []
     for fd in resp.get("FaceDetails", []):
@@ -199,7 +200,7 @@ async def detect_text(
     try:
         resp = await client.call("DetectText", Image=image)
     except RuntimeError as exc:
-        raise RuntimeError(f"detect_text failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_text failed") from exc
     return [
         RekognitionText(
             detected_text=td["DetectedText"],
@@ -240,7 +241,7 @@ async def compare_faces(
             SimilarityThreshold=similarity_threshold,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"compare_faces failed: {exc}") from exc
+        raise wrap_aws_error(exc, "compare_faces failed") from exc
     return [
         FaceMatch(
             similarity=fm["Similarity"],
@@ -284,7 +285,7 @@ async def detect_moderation_labels(
             MinConfidence=min_confidence,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"detect_moderation_labels failed: {exc}") from exc
+        raise wrap_aws_error(exc, "detect_moderation_labels failed") from exc
     return [
         RekognitionLabel(
             name=lbl["Name"],
@@ -323,7 +324,7 @@ async def create_collection(
     try:
         resp = await client.call("CreateCollection", CollectionId=collection_id)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create collection {collection_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create collection {collection_id!r}") from exc
     return resp.get("CollectionArn", "")
 
 
@@ -367,10 +368,10 @@ async def index_face(
     try:
         resp = await client.call("IndexFaces", **kwargs)
     except RuntimeError as exc:
-        raise RuntimeError(f"index_face failed for collection {collection_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"index_face failed for collection {collection_id!r}") from exc
     records = resp.get("FaceRecords", [])
     if not records:
-        raise RuntimeError("No face detected in the provided image")
+        raise AwsServiceError("No face detected in the provided image")
     return records[0]["Face"]["FaceId"]
 
 
@@ -413,8 +414,8 @@ async def search_face_by_image(
             FaceMatchThreshold=face_match_threshold,
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            f"search_face_by_image failed for collection {collection_id!r}: {exc}"
+        raise wrap_aws_error(
+            exc, f"search_face_by_image failed for collection {collection_id!r}"
         ) from exc
     return [
         {
@@ -444,7 +445,7 @@ async def delete_collection(
     try:
         await client.call("DeleteCollection", CollectionId=collection_id)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to delete collection {collection_id!r}: {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to delete collection {collection_id!r}") from exc
 
 
 async def ensure_collection(
@@ -473,7 +474,7 @@ async def ensure_collection(
         return resp["CollectionARN"], False
     except RuntimeError as exc:
         if "ResourceNotFoundException" not in str(exc):
-            raise RuntimeError(f"ensure_collection failed for {collection_id!r}: {exc}") from exc
+            raise wrap_aws_error(exc, f"ensure_collection failed for {collection_id!r}") from exc
 
     arn = await create_collection(collection_id, region_name=region_name)
     return arn, True

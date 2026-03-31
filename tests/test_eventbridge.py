@@ -72,14 +72,31 @@ def test_put_events_runtime_error(monkeypatch):
         put_events([_make_entry()], region_name=REGION)
 
 
-def test_put_events_partial_failure(monkeypatch):
+def test_put_events_partial_failure_returns_result(monkeypatch):
+    """When some events succeed and some fail, a result is returned (not raised)."""
+    mock_client = MagicMock()
+    mock_client.put_events.return_value = {
+        "FailedEntryCount": 1,
+        "Entries": [
+            {"EventId": "abc123"},
+            {"ErrorCode": "SomeError", "ErrorMessage": "fail"},
+        ],
+    }
+    monkeypatch.setattr(eb_mod, "get_client", lambda *a, **kw: mock_client)
+    result = put_events([_make_entry(), _make_entry()], region_name=REGION)
+    assert result.failed_count == 1
+    assert result.successful_count == 1
+
+
+def test_put_events_all_fail_raises(monkeypatch):
+    """When ALL events fail, an AwsServiceError is raised."""
     mock_client = MagicMock()
     mock_client.put_events.return_value = {
         "FailedEntryCount": 1,
         "Entries": [{"ErrorCode": "SomeError", "ErrorMessage": "fail"}],
     }
     monkeypatch.setattr(eb_mod, "get_client", lambda *a, **kw: mock_client)
-    with pytest.raises(RuntimeError, match="event.*failed to publish"):
+    with pytest.raises(RuntimeError, match="All.*event.*failed to publish"):
         put_events([_make_entry()], region_name=REGION)
 
 

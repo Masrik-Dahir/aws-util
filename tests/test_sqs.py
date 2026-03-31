@@ -403,6 +403,59 @@ def test_replay_dlq(dlq, queue):
     assert any(m.body == "from-dlq" for m in msgs)
 
 
+def test_replay_dlq_forwards_message_attributes(dlq, queue):
+    """Replayed messages should carry the original MessageAttributes."""
+    dlq_client, dlq_url = dlq
+    _, target_url = queue
+    dlq_client.send_message(
+        QueueUrl=dlq_url,
+        MessageBody="attr-msg",
+        MessageAttributes={
+            "trace_id": {"DataType": "String", "StringValue": "abc-123"},
+        },
+    )
+    count = replay_dlq(dlq_url, target_url, region_name=REGION)
+    assert count == 1
+    msgs = receive_messages(target_url, region_name=REGION)
+    assert msgs
+    assert "trace_id" in msgs[0].message_attributes
+
+
+def test_replay_dlq_send_failure_logged(dlq, monkeypatch):
+    """When sending to target fails, the handler exception is logged and
+    the message is not counted as processed."""
+    _, dlq_url = dlq
+    send_message(dlq_url, "fail-replay", region_name=REGION)
+
+    import aws_util.sqs as sqsmod
+
+    real_get_client = sqsmod.get_client
+    _call_count = {"n": 0}
+
+    def patched_get_client(service, region_name=None):
+        client = real_get_client(service, region_name=region_name)
+        _call_count["n"] += 1
+        if _call_count["n"] > 1:
+            orig_send = client.send_message
+
+            def fail_send(**kwargs):
+                if "MessageBody" in kwargs and kwargs["MessageBody"] == "fail-replay":
+                    from botocore.exceptions import ClientError as _CE
+
+                    raise _CE(
+                        {"Error": {"Code": "QueueDoesNotExist", "Message": "no"}},
+                        "SendMessage",
+                    )
+                return orig_send(**kwargs)
+
+            client.send_message = fail_send
+        return client
+
+    monkeypatch.setattr(sqsmod, "get_client", patched_get_client)
+    count = replay_dlq(dlq_url, "https://invalid-target", region_name=REGION)
+    assert count == 0
+
+
 # ---------------------------------------------------------------------------
 # send_large_batch
 # ---------------------------------------------------------------------------

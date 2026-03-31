@@ -1,7 +1,6 @@
 """Native async infra_automation — Infrastructure Automation utilities.
 
-Replaces the ``async_wrap`` shim with real async calls via the native
-:mod:`aws_util.aio._engine`.
+Native async implementation using :mod:`aws_util.aio._engine` for true non-blocking I/O.
 
 ``custom_resource_handler`` is pure-compute (no AWS API calls) and is
 re-exported directly from the sync module.  ``_extract_iam_resources``
@@ -18,6 +17,7 @@ import time
 from typing import Any
 
 from aws_util.aio._engine import async_client
+from aws_util.exceptions import AwsServiceError, wrap_aws_error
 from aws_util.infra_automation import (
     ApiGatewayStageResult,
     CustomResourceResponse,
@@ -35,22 +35,22 @@ from aws_util.infra_automation import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "ScheduledScalingResult",
-    "StackOutputResult",
-    "ResourceCleanupResult",
-    "MultiRegionFailoverResult",
-    "InfrastructureDiffResult",
-    "LambdaVpcResult",
     "ApiGatewayStageResult",
     "CustomResourceResponse",
-    "scheduled_scaling_manager",
-    "stack_output_resolver",
-    "resource_cleanup_scheduler",
-    "multi_region_failover",
-    "infrastructure_diff_reporter",
-    "lambda_vpc_connector",
+    "InfrastructureDiffResult",
+    "LambdaVpcResult",
+    "MultiRegionFailoverResult",
+    "ResourceCleanupResult",
+    "ScheduledScalingResult",
+    "StackOutputResult",
     "api_gateway_stage_manager",
     "custom_resource_handler",
+    "infrastructure_diff_reporter",
+    "lambda_vpc_connector",
+    "multi_region_failover",
+    "resource_cleanup_scheduler",
+    "scheduled_scaling_manager",
+    "stack_output_resolver",
 ]
 
 
@@ -117,8 +117,8 @@ async def scheduled_scaling_manager(
                 ScalableTargetAction=scalable_target_action,
             )
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to create scheduled action '{scheduled_action_name}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to create scheduled action '{scheduled_action_name}'"
             ) from exc
     else:
         try:
@@ -130,8 +130,8 @@ async def scheduled_scaling_manager(
                 ScheduledActionName=scheduled_action_name,
             )
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to delete scheduled action '{scheduled_action_name}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to delete scheduled action '{scheduled_action_name}'"
             ) from exc
 
     logger.info(
@@ -191,7 +191,7 @@ async def stack_output_resolver(
                 token_output="NextToken",
             )
         except RuntimeError as exc:
-            raise RuntimeError(f"Failed to list exports: {exc}") from exc
+            raise wrap_aws_error(exc, "Failed to list exports") from exc
 
         for export in all_exports:
             if export["Name"] == export_name:
@@ -200,17 +200,17 @@ async def stack_output_resolver(
                     value=export["Value"],
                     source="export",
                 )
-        raise RuntimeError(f"Export '{export_name}' not found")
+        raise AwsServiceError(f"Export '{export_name}' not found")
 
     # stack_name + output_key path
     try:
         resp = await cfn.call("DescribeStacks", StackName=stack_name)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to describe stack '{stack_name}': {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to describe stack '{stack_name}'") from exc
 
     stacks = resp.get("Stacks", [])
     if not stacks:
-        raise RuntimeError(f"Stack '{stack_name}' not found")
+        raise AwsServiceError(f"Stack '{stack_name}' not found")
 
     outputs = stacks[0].get("Outputs", [])
     for out in outputs:
@@ -221,7 +221,7 @@ async def stack_output_resolver(
                 source="stack_output",
             )
 
-    raise RuntimeError(f"Output '{output_key}' not found in stack '{stack_name}'")
+    raise AwsServiceError(f"Output '{output_key}' not found in stack '{stack_name}'")
 
 
 # ---------------------------------------------------------------------------
@@ -277,8 +277,8 @@ async def resource_cleanup_scheduler(
                 FunctionName=lambda_function_name,
             )
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to list Lambda versions for '{lambda_function_name}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to list Lambda versions for '{lambda_function_name}'"
             ) from exc
 
         versions = [v for v in resp.get("Versions", []) if v["Version"] != "$LATEST"]
@@ -313,8 +313,8 @@ async def resource_cleanup_scheduler(
                 ExpressionAttributeValues={":now": {"N": str(now)}},
             )
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to scan DynamoDB table '{dynamodb_table_name}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to scan DynamoDB table '{dynamodb_table_name}'"
             ) from exc
 
         for item in resp.get("Items", []):
@@ -342,8 +342,8 @@ async def resource_cleanup_scheduler(
                 Prefix=s3_prefix,
             )
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to list S3 objects in '{s3_bucket}/{s3_prefix}': {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to list S3 objects in '{s3_bucket}/{s3_prefix}'"
             ) from exc
 
         for obj in resp.get("Contents", []):
@@ -441,7 +441,7 @@ async def multi_region_failover(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create health check: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to create health check") from exc
 
     health_check_id = hc_resp["HealthCheck"]["Id"]
 
@@ -478,7 +478,7 @@ async def multi_region_failover(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create failover records: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to create failover records") from exc
 
     logger.info(
         "Multi-region failover configured: %s -> %s / %s",
@@ -544,8 +544,8 @@ async def infrastructure_diff_reporter(
                 body_str = str(body_raw)
             template_a = json.loads(body_str)
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to load template from s3://{s3_bucket}/{s3_key_a}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to load template from s3://{s3_bucket}/{s3_key_a}"
             ) from exc
 
     if template_b is None and s3_key_b is not None:
@@ -563,8 +563,8 @@ async def infrastructure_diff_reporter(
                 body_str = str(body_raw)
             template_b = json.loads(body_str)
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Failed to load template from s3://{s3_bucket}/{s3_key_b}: {exc}"
+            raise wrap_aws_error(
+                exc, f"Failed to load template from s3://{s3_bucket}/{s3_key_b}"
             ) from exc
 
     if template_a is None or template_b is None:
@@ -654,13 +654,13 @@ async def lambda_vpc_connector(
     try:
         resp = await ec2.call("DescribeSubnets", SubnetIds=subnet_ids)
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to validate subnets: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to validate subnets") from exc
 
     subnets = resp.get("Subnets", [])
     if len(subnets) != len(subnet_ids):
         found = {s["SubnetId"] for s in subnets}
         missing = set(subnet_ids) - found
-        raise RuntimeError(f"Subnets not found: {sorted(missing)}")
+        raise AwsServiceError(f"Subnets not found: {sorted(missing)}")
 
     vpc_id = subnets[0]["VpcId"]
 
@@ -671,13 +671,13 @@ async def lambda_vpc_connector(
             GroupIds=security_group_ids,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to validate security groups: {exc}") from exc
+        raise wrap_aws_error(exc, "Failed to validate security groups") from exc
 
     sgs = resp.get("SecurityGroups", [])
     if len(sgs) != len(security_group_ids):
         found = {s["GroupId"] for s in sgs}
         missing = set(security_group_ids) - found
-        raise RuntimeError(f"Security groups not found: {sorted(missing)}")
+        raise AwsServiceError(f"Security groups not found: {sorted(missing)}")
 
     # Apply VPC config to Lambda
     lam = async_client("lambda", region_name)
@@ -691,7 +691,7 @@ async def lambda_vpc_connector(
             },
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to configure VPC for '{function_name}': {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to configure VPC for '{function_name}'") from exc
 
     logger.info(
         "Lambda %s configured with VPC %s",
@@ -750,7 +750,7 @@ async def api_gateway_stage_manager(
             description=description,
         )
     except RuntimeError as exc:
-        raise RuntimeError(f"Failed to create deployment for '{rest_api_id}': {exc}") from exc
+        raise wrap_aws_error(exc, f"Failed to create deployment for '{rest_api_id}'") from exc
 
     deployment_id = deploy_resp["id"]
 
@@ -792,11 +792,11 @@ async def api_gateway_stage_manager(
                     patchOperations=patch_ops,
                 )
             except RuntimeError as update_exc:
-                raise RuntimeError(
-                    f"Failed to update stage '{stage_name}': {update_exc}"
+                raise wrap_aws_error(
+                    update_exc, f"Failed to update stage '{stage_name}'"
                 ) from update_exc
         else:
-            raise RuntimeError(f"Failed to create stage '{stage_name}': {exc}") from exc
+            raise wrap_aws_error(exc, f"Failed to create stage '{stage_name}'") from exc
 
     # Apply method throttling
     if method_throttling:
@@ -829,7 +829,7 @@ async def api_gateway_stage_manager(
                     patchOperations=patch_ops,
                 )
             except RuntimeError as exc:
-                raise RuntimeError(f"Failed to apply throttling to '{stage_name}': {exc}") from exc
+                raise wrap_aws_error(exc, f"Failed to apply throttling to '{stage_name}'") from exc
 
     logger.info(
         "API Gateway stage '%s' managed for API '%s'",
