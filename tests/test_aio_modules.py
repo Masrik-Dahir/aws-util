@@ -1116,14 +1116,21 @@ class TestAioNotifier:
     def test_functions_are_coroutines(self):
         from aws_util.aio import notifier
 
+        # Native async functions (coroutines)
         for name in [
             "send_alert",
-            "notify_on_exception",
             "broadcast",
             "resolve_and_notify",
         ]:
             fn = getattr(notifier, name)
             assert inspect.iscoroutinefunction(fn), f"{name} is not a coroutine"
+
+        # Decorator factories are regular functions (not coroutines)
+        for name in [
+            "notify_on_exception",
+        ]:
+            fn = getattr(notifier, name)
+            assert callable(fn), f"{name} is not callable"
 
     def test_all_exports(self):
         from aws_util.aio import notifier
@@ -1354,12 +1361,27 @@ class TestAioLambdaMiddleware:
     def test_functions_are_coroutines(self):
         from aws_util.aio import lambda_middleware
 
+        # Native async functions (coroutines)
+        for name in [
+            "lambda_timeout_guard",
+            "evaluate_feature_flag",
+            "evaluate_feature_flags",
+        ]:
+            fn = getattr(lambda_middleware, name)
+            assert inspect.iscoroutinefunction(fn), f"{name} is not a coroutine"
+
+        # Decorator factories are regular functions (not coroutines)
         for name in [
             "idempotent_handler",
+            "cold_start_tracker",
+        ]:
+            fn = getattr(lambda_middleware, name)
+            assert callable(fn), f"{name} is not callable"
+
+        # Pure-compute re-exports are regular sync functions
+        for name in [
             "batch_processor",
             "middleware_chain",
-            "lambda_timeout_guard",
-            "cold_start_tracker",
             "lambda_response",
             "cors_preflight",
             "parse_api_gateway_event",
@@ -1370,11 +1392,9 @@ class TestAioLambdaMiddleware:
             "parse_dynamodb_stream_event",
             "parse_kinesis_event",
             "parse_event",
-            "evaluate_feature_flag",
-            "evaluate_feature_flags",
         ]:
             fn = getattr(lambda_middleware, name)
-            assert inspect.iscoroutinefunction(fn), f"{name} is not a coroutine"
+            assert callable(fn), f"{name} is not callable"
 
     def test_all_exports(self):
         from aws_util.aio import lambda_middleware
@@ -1707,9 +1727,9 @@ class TestAioResilience:
     def test_functions_are_coroutines(self):
         from aws_util.aio import resilience
 
+        # Native async functions (coroutines)
         for name in [
             "circuit_breaker",
-            "retry_with_backoff",
             "dlq_monitor_and_alert",
             "poison_pill_handler",
             "lambda_destination_router",
@@ -1718,6 +1738,13 @@ class TestAioResilience:
         ]:
             fn = getattr(resilience, name)
             assert inspect.iscoroutinefunction(fn), f"{name} is not a coroutine"
+
+        # Decorator factories are regular functions (not coroutines)
+        for name in [
+            "retry_with_backoff",
+        ]:
+            fn = getattr(resilience, name)
+            assert callable(fn), f"{name} is not callable"
 
     def test_all_exports(self):
         from aws_util.aio import resilience
@@ -1740,3 +1767,94 @@ class TestAioResilience:
             "timeout_sentinel",
         }
         assert set(resilience.__all__) == expected
+
+
+# ---------------------------------------------------------------------------
+# aio.security_compliance
+# ---------------------------------------------------------------------------
+
+
+class TestAioSecurityCompliance:
+    def test_models_re_exported(self):
+        from aws_util.aio.security_compliance import (
+            CognitoAuthResult,
+            ComplianceSnapshotResult,
+            DataMaskingResult,
+            EncryptionEnforcerResult,
+            EncryptionStatus,
+            PolicyValidationFinding,
+            PrivilegeAnalysisResult,
+            ResourcePolicyValidationResult,
+            SecretRotationResult,
+            SecurityGroupAuditResult,
+            WafAssociationResult,
+        )
+        from aws_util.security_compliance import (
+            CognitoAuthResult as SC,
+            ComplianceSnapshotResult as SCS,
+            DataMaskingResult as SD,
+            EncryptionEnforcerResult as SEE,
+            EncryptionStatus as SES,
+            PolicyValidationFinding as SPV,
+            PrivilegeAnalysisResult as SPA,
+            ResourcePolicyValidationResult as SRP,
+            SecretRotationResult as SSR,
+            SecurityGroupAuditResult as SSG,
+            WafAssociationResult as SW,
+        )
+
+        assert CognitoAuthResult is SC
+        assert ComplianceSnapshotResult is SCS
+        assert DataMaskingResult is SD
+        assert EncryptionEnforcerResult is SEE
+        assert EncryptionStatus is SES
+        assert PolicyValidationFinding is SPV
+        assert PrivilegeAnalysisResult is SPA
+        assert ResourcePolicyValidationResult is SRP
+        assert SecretRotationResult is SSR
+        assert SecurityGroupAuditResult is SSG
+        assert WafAssociationResult is SW
+
+    def test_functions_are_coroutines(self):
+        from aws_util.aio import security_compliance
+
+        for name in [
+            "least_privilege_analyzer",
+            "secret_rotation_orchestrator",
+            "data_masking_processor",
+            "vpc_security_group_auditor",
+            "encryption_enforcer",
+            "api_gateway_waf_manager",
+            "compliance_snapshot",
+            "resource_policy_validator",
+            "cognito_auth_flow_manager",
+        ]:
+            fn = getattr(security_compliance, name)
+            assert inspect.iscoroutinefunction(fn), f"{name} is not a coroutine"
+
+    def test_all_exports(self):
+        from aws_util.aio import security_compliance
+
+        expected = {
+            "PrivilegeAnalysisResult",
+            "SecretRotationResult",
+            "DataMaskingResult",
+            "SecurityGroupAuditResult",
+            "EncryptionStatus",
+            "EncryptionEnforcerResult",
+            "WafAssociationResult",
+            "ComplianceSnapshotResult",
+            "PolicyValidationFinding",
+            "ResourcePolicyValidationResult",
+            "CognitoAuthResult",
+            "least_privilege_analyzer",
+            "secret_rotation_orchestrator",
+            "data_masking_processor",
+            "vpc_security_group_auditor",
+            "encryption_enforcer",
+            "api_gateway_waf_manager",
+            "compliance_snapshot",
+            "resource_policy_validator",
+            "cognito_auth_flow_manager",
+        }
+        assert set(security_compliance.__all__) == expected

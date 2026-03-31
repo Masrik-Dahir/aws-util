@@ -9,7 +9,7 @@
 [![Test](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/mutation.yml/badge.svg)](https://github.com/Masrik-Dahir/AWS_util/actions/workflows/mutation.yml)
 
 
-A comprehensive Python utility library for **32+ AWS services** with **52 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
+A comprehensive Python utility library for **32+ AWS services** with **64 modules**. Every module provides clean, typed helper functions backed by Pydantic data models, `lru_cache`-powered boto3 clients, automatic pagination, built-in `wait_for_*` polling helpers, and **complex multi-step utilities** for real-world workflows. Includes dedicated multi-service orchestration modules for config loading, deployments, alerting, and data pipelines.
 
 ## Installation
 
@@ -23,6 +23,7 @@ pip install aws-util
 - `boto3`
 - `pydantic >= 2.0`
 - `cryptography >= 42.0` (for KMS envelope encryption)
+- `aiohttp >= 3.9` (for native async `aws_util.aio` modules)
 - AWS credentials configured (environment variables, IAM role, or `~/.aws/credentials`)
 
 ---
@@ -80,6 +81,43 @@ pip install aws-util
 | 47 | `cost_optimization` | Lambda + CloudWatch + SQS + CloudWatch Logs + DynamoDB + Resource Groups Tagging *(multi-service)* | **`lambda_right_sizer`**, **`unused_resource_finder`**, **`concurrency_optimizer`**, **`cost_attribution_tagger`**, **`dynamodb_capacity_advisor`**, **`log_retention_enforcer`** |
 | 48 | `testing_dev` | Lambda + CloudFormation + DynamoDB + SQS + S3 + SNS *(multi-service)* | **`lambda_event_generator`**, **`local_dynamodb_seeder`**, **`integration_test_harness`**, **`mock_event_source`**, **`lambda_invoke_recorder`**, **`snapshot_tester`** |
 | 49 | `config_state` | SSM + Secrets Manager + DynamoDB + STS + Lambda + AppConfig *(multi-service)* | **`config_resolver`**, **`distributed_lock`**, **`state_machine_checkpoint`**, **`cross_account_role_assumer`**, **`environment_variable_sync`**, **`appconfig_feature_loader`** |
+| 50 | `blue_green` | ECS + ELBv2 + Route53 + CloudWatch + SNS + Lambda + Application Auto Scaling *(multi-service)* | **`ecs_blue_green_deployer`**, **`weighted_routing_manager`**, **`lambda_provisioned_concurrency_scaler`** |
+| 51 | `data_lake` | Glue + Lake Formation + Athena + S3 + DynamoDB + CloudWatch + SNS *(multi-service)* | **`schema_evolution_manager`**, **`lake_formation_access_manager`**, **`data_quality_pipeline`** |
+| 52 | `cross_account` | EventBridge + CloudWatch Logs + Kinesis Firehose + S3 + DynamoDB + SQS + STS + Resource Groups Tagging *(multi-service)* | **`cross_account_event_bus_federator`**, **`centralized_log_aggregator`**, **`multi_account_resource_inventory`** |
+| 53 | `event_patterns` | DynamoDB + SNS + SQS + EventBridge + S3 *(multi-service)* | **`transactional_outbox_processor`**, **`dlq_escalation_chain`**, **`event_sourcing_store`** |
+| 54 | `database_migration` | DynamoDB + S3 + RDS + Route53 + Secrets Manager *(multi-service)* | **`dynamodb_table_migrator`**, **`rds_blue_green_orchestrator`** |
+| 55 | `credential_rotation` | Secrets Manager + RDS + SNS *(multi-service)* | **`database_credential_rotator`** |
+| 56 | `disaster_recovery` | EC2 + RDS + S3 + Route53 + SNS + Backup *(multi-service)* | **`disaster_recovery_orchestrator`**, **`backup_compliance_manager`** |
+| 57 | `cost_governance` | Cost Explorer + CloudWatch + SNS *(multi-service)* | **`cost_anomaly_detector`**, **`savings_plan_analyzer`** |
+| 58 | `security_automation` | GuardDuty + EC2 + IAM + Config + SNS + Lambda + S3 *(multi-service)* | **`guardduty_auto_remediator`**, **`config_rules_auto_remediator`** |
+| 59 | `container_ops` | ECS + Application Auto Scaling + CloudWatch *(multi-service)* | **`ecs_capacity_provider_optimizer`** |
+| 60 | `ml_pipeline` | SageMaker + CloudWatch + S3 + STS *(multi-service)* | **`sagemaker_endpoint_manager`**, **`model_registry_promoter`** |
+| 61 | `networking` | EC2 (VPC) + Route53 *(multi-service)* | **`vpc_connectivity_manager`** |
+
+---
+
+## Native Async (`aws_util.aio`)
+
+Every module above has a native async counterpart under `aws_util.aio`. The async package uses a custom engine (`aws_util.aio._engine`) built on **aiohttp** for true non-blocking HTTP, with **botocore** handling only serialization and request signing. The engine includes built-in circuit breaking, adaptive retry, and connection pooling.
+
+```python
+from aws_util.aio.s3 import upload_object, download_object
+from aws_util.aio.dynamodb import put_item, get_item
+from aws_util.aio.messaging import multi_channel_notifier
+from aws_util.aio.resilience import circuit_breaker, retry_with_backoff
+
+# All functions are native async -- no thread pool wrappers
+result = await upload_object("my-bucket", "key.txt", b"data")
+```
+
+Key features:
+
+- **Same signatures and return types** as the sync modules -- Pydantic models are imported directly from the sync layer.
+- **`AsyncClient.call(operation, **params)`** for single API calls.
+- **`AsyncClient.paginate(operation, result_key, ...)`** for auto-pagination.
+- **`AsyncClient.wait_until(operation, check_fn, ...)`** for polling waiters.
+- Decorator factories (e.g. `idempotent_handler`, `retry_with_backoff`, `cold_start_tracker`) return async wrappers that use `asyncio.sleep` and `asyncio.wait_for`.
+- Pure-compute functions (e.g. `parse_event`, `lambda_response`, `emit_emf_metric`) are re-exported directly from the sync module.
 
 ---
 
@@ -1437,6 +1475,153 @@ from aws_util.config_state import (
 | `environment_variable_sync` | SSM + Lambda | Sync Lambda env vars from SSM Parameter Store with change detection |
 | `appconfig_feature_loader` | AppConfig | Fetch and cache AWS AppConfig feature flags with automatic refresh |
 
+### `blue_green` -- Blue/green & canary deployments
+
+```python
+from aws_util.blue_green import (
+    ecs_blue_green_deployer, weighted_routing_manager,
+    lambda_provisioned_concurrency_scaler,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `ecs_blue_green_deployer` | ECS + ELBv2 + CloudWatch | Create green target group and ECS service, incrementally shift ALB listener weights with CloudWatch alarm gating and auto-rollback |
+| `weighted_routing_manager` | Route53 + CloudWatch + SNS | Manage Route53 weighted record sets for canary traffic migration with health-check monitoring, auto-revert, and SNS notifications |
+| `lambda_provisioned_concurrency_scaler` | Lambda + Application Auto Scaling + CloudWatch + SNS | Configure Lambda provisioned concurrency with alias management, target-tracking scaling, scheduled actions, and cold-start alarms |
+
+### `cross_account` -- Cross-account AWS patterns
+
+```python
+from aws_util.cross_account import (
+    cross_account_event_bus_federator,
+    centralized_log_aggregator,
+    multi_account_resource_inventory,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `cross_account_event_bus_federator` | EventBridge + STS + SQS | Set up cross-account EventBridge event routing with resource policies, forwarding rules, DLQ configuration, and connectivity validation |
+| `centralized_log_aggregator` | CloudWatch Logs + Kinesis Firehose + S3 + STS | Configure cross-account CloudWatch Logs aggregation via Firehose to S3 with subscription filters, access policies, and lifecycle rules |
+| `multi_account_resource_inventory` | Resource Groups Tagging + DynamoDB + S3 + STS | Inventory tagged resources across multiple accounts, batch-write to DynamoDB, and export to S3 as JSON |
+
+### `event_patterns` -- Event-driven architecture patterns
+
+```python
+from aws_util.event_patterns import (
+    transactional_outbox_processor,
+    dlq_escalation_chain,
+    event_sourcing_store,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `transactional_outbox_processor` | DynamoDB + SNS/SQS/EventBridge | Scan a DynamoDB outbox table for pending events, publish to SNS/SQS/EventBridge, and mark delivered with automatic retry and dead-letter handling |
+| `dlq_escalation_chain` | SQS + SNS | Multi-tier DLQ escalation: reprocess messages through a chain of queues, escalating to SNS alerts when all retries are exhausted |
+| `event_sourcing_store` | DynamoDB + S3 + SNS | Append events to a DynamoDB event store, maintain snapshots in S3, and publish change notifications to SNS |
+
+### `database_migration` -- Zero-downtime database migration
+
+```python
+from aws_util.database_migration import (
+    dynamodb_table_migrator,
+    rds_blue_green_orchestrator,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `dynamodb_table_migrator` | DynamoDB + S3 | Migrate DynamoDB tables with schema transformation, backfill via scan-and-write with progress tracking and S3 backup |
+| `rds_blue_green_orchestrator` | RDS + Route53 + Secrets Manager | Create RDS blue/green deployments, wait for sync, switch DNS via Route53, rotate credentials in Secrets Manager, and clean up old instances |
+
+### `credential_rotation` -- Database credential rotation
+
+```python
+from aws_util.credential_rotation import database_credential_rotator
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `database_credential_rotator` | Secrets Manager + RDS + SNS | Multi-step credential rotation: generate new password, update RDS master credentials, store in Secrets Manager, validate connectivity, and send SNS notifications |
+
+### `disaster_recovery` -- DR orchestration & backup compliance
+
+```python
+from aws_util.disaster_recovery import (
+    disaster_recovery_orchestrator,
+    backup_compliance_manager,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `disaster_recovery_orchestrator` | EC2 + RDS + S3 + Route53 + SNS | Multi-region DR lifecycle: replicate AMIs and RDS snapshots, failover DNS, launch recovery instances, and send status notifications |
+| `backup_compliance_manager` | Backup + DynamoDB + S3 + SNS | Audit AWS Backup vault compliance, verify retention policies, check backup freshness, and report violations via SNS |
+
+### `cost_governance` -- Cost anomaly detection & savings analysis
+
+```python
+from aws_util.cost_governance import (
+    cost_anomaly_detector,
+    savings_plan_analyzer,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `cost_anomaly_detector` | Cost Explorer + CloudWatch + SNS | Detect cost anomalies by comparing current spend against historical baselines with configurable thresholds, publish CloudWatch metrics, and alert via SNS |
+| `savings_plan_analyzer` | Cost Explorer + CloudWatch + SNS | Analyze Savings Plan utilization and coverage, identify optimization opportunities, publish metrics, and send recommendations via SNS |
+
+### `security_automation` -- Automated security remediation
+
+```python
+from aws_util.security_automation import (
+    guardduty_auto_remediator,
+    config_rules_auto_remediator,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `guardduty_auto_remediator` | GuardDuty + EC2 + IAM + SNS | Automatically remediate GuardDuty findings: isolate compromised EC2 instances, disable leaked IAM credentials, and notify via SNS |
+| `config_rules_auto_remediator` | Config + Lambda + S3 + SNS | Auto-remediate non-compliant AWS Config rules: enable S3 encryption/versioning/public-access blocks, invoke Lambda for custom fixes, and alert via SNS |
+
+### `container_ops` -- ECS capacity provider optimization
+
+```python
+from aws_util.container_ops import ecs_capacity_provider_optimizer
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `ecs_capacity_provider_optimizer` | ECS + Application Auto Scaling + CloudWatch | Analyze ECS cluster capacity, optimize Fargate/Fargate Spot ratios, configure auto-scaling policies, and publish utilization metrics |
+
+### `ml_pipeline` -- SageMaker endpoint & model registry management
+
+```python
+from aws_util.ml_pipeline import (
+    sagemaker_endpoint_manager,
+    model_registry_promoter,
+)
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `sagemaker_endpoint_manager` | SageMaker + CloudWatch | Deploy SageMaker endpoints with A/B traffic splitting, auto-scaling, CloudWatch health monitoring, and variant-level metrics collection |
+| `model_registry_promoter` | SageMaker + S3 + STS | Promote models through SageMaker Model Registry stages (dev → staging → prod) with optional cross-account S3 artifact copies |
+
+### `networking` -- VPC connectivity automation
+
+```python
+from aws_util.networking import vpc_connectivity_manager
+```
+
+| Function | Services | Description |
+|---|---|---|
+| `vpc_connectivity_manager` | EC2 (VPC) + Route53 | Automate VPC peering, Transit Gateway attachments, and PrivateLink endpoint services with route table updates and DNS configuration |
+
 ---
 
 ## Error handling
@@ -1508,6 +1693,8 @@ Minimum permissions required per service:
 | cost_optimization | `lambda:GetFunctionConfiguration` `lambda:UpdateFunctionConfiguration` `lambda:InvokeFunction` `lambda:ListFunctions` `cloudwatch:GetMetricStatistics` `sqs:ListQueues` `sqs:GetQueueAttributes` `logs:DescribeLogGroups` `logs:PutRetentionPolicy` `dynamodb:DescribeTable` `tag:GetResources` `tag:TagResources` |
 | testing_dev | `lambda:InvokeFunction` `lambda:CreateEventSourceMapping` `cloudformation:CreateStack` `cloudformation:DescribeStacks` `cloudformation:DeleteStack` `dynamodb:BatchWriteItem` `sqs:CreateQueue` `sqs:GetQueueAttributes` `sqs:ReceiveMessage` `s3:CreateBucket` `s3:PutObject` `s3:GetObject` `s3:PutBucketNotificationConfiguration` `sns:Publish` |
 | config_state | `ssm:GetParametersByPath` `secretsmanager:GetSecretValue` `dynamodb:PutItem` `dynamodb:GetItem` `dynamodb:DeleteItem` `sts:AssumeRole` `lambda:GetFunctionConfiguration` `lambda:UpdateFunctionConfiguration` `appconfig:GetLatestConfiguration` `appconfig:StartConfigurationSession` |
+| blue_green | `ecs:CreateService` `ecs:UpdateService` `ecs:DescribeServices` `elasticloadbalancing:DescribeListeners` `elasticloadbalancing:ModifyListener` `elasticloadbalancing:CreateTargetGroup` `elasticloadbalancing:DescribeTargetGroups` `route53:ChangeResourceRecordSets` `route53:GetHealthCheckStatus` `cloudwatch:DescribeAlarms` `cloudwatch:PutMetricAlarm` `sns:Publish` `lambda:GetAlias` `lambda:CreateAlias` `application-autoscaling:RegisterScalableTarget` `application-autoscaling:PutScalingPolicy` `application-autoscaling:PutScheduledAction` |
+| cross_account | `sts:AssumeRole` `events:PutPermission` `events:PutRule` `events:PutTargets` `events:PutEvents` `firehose:CreateDeliveryStream` `logs:PutDestination` `logs:PutDestinationPolicy` `logs:DescribeDestinations` `logs:DescribeLogGroups` `logs:PutSubscriptionFilter` `s3:GetBucketLifecycleConfiguration` `s3:PutBucketLifecycleConfiguration` `s3:PutObject` `dynamodb:BatchWriteItem` `tag:GetResources` |
 
 ---
 

@@ -136,6 +136,28 @@ Infrastructure automation::
         infrastructure_diff_reporter, lambda_vpc_connector,
         api_gateway_stage_manager, custom_resource_handler,
     )
+
+Cross-account patterns::
+
+    from aws_util.cross_account import (
+        cross_account_event_bus_federator,
+        centralized_log_aggregator,
+        multi_account_resource_inventory,
+    )
+
+Blue/green & canary deployments::
+
+    from aws_util.blue_green import (
+        ecs_blue_green_deployer, weighted_routing_manager,
+        lambda_provisioned_concurrency_scaler,
+    )
+
+Data lake management::
+
+    from aws_util.data_lake import (
+        schema_evolution_manager, lake_formation_access_manager,
+        data_quality_pipeline,
+    )
 """
 
 from __future__ import annotations

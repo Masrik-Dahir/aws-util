@@ -1,17 +1,11 @@
-"""Async wrappers for :mod:`aws_util.sts`."""
+"""Native async STS utilities — real non-blocking I/O via :mod:`aws_util.aio._engine`."""
 
 from __future__ import annotations
 
-from aws_util._async_wrap import async_wrap
-from aws_util.sts import (
-    AssumedRoleCredentials,
-    CallerIdentity,
-    assume_role as _sync_assume_role,
-    assume_role_session as _sync_assume_role_session,
-    get_account_id as _sync_get_account_id,
-    get_caller_identity as _sync_get_caller_identity,
-    is_valid_account_id as _sync_is_valid_account_id,
-)
+from typing import Any
+
+from aws_util.aio._engine import async_client
+from aws_util.sts import AssumedRoleCredentials, CallerIdentity
 
 __all__ = [
     "CallerIdentity",
@@ -23,8 +17,161 @@ __all__ = [
     "is_valid_account_id",
 ]
 
-get_caller_identity = async_wrap(_sync_get_caller_identity)
-get_account_id = async_wrap(_sync_get_account_id)
-assume_role = async_wrap(_sync_assume_role)
-assume_role_session = async_wrap(_sync_assume_role_session)
-is_valid_account_id = async_wrap(_sync_is_valid_account_id)
+
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+
+
+async def get_caller_identity(
+    region_name: str | None = None,
+) -> CallerIdentity:
+    """Return the identity of the AWS principal making this call.
+
+    Equivalent to ``aws sts get-caller-identity``.  Useful for verifying
+    which account/role is active at runtime.
+
+    Args:
+        region_name: AWS region override.
+
+    Returns:
+        A :class:`CallerIdentity` with account ID, ARN, and user ID.
+
+    Raises:
+        RuntimeError: If the STS call fails.
+    """
+    try:
+        client = async_client("sts", region_name)
+        resp = await client.call("GetCallerIdentity")
+    except RuntimeError as exc:
+        raise RuntimeError(f"get_caller_identity failed: {exc}") from exc
+    return CallerIdentity(
+        account_id=resp["Account"],
+        arn=resp["Arn"],
+        user_id=resp["UserId"],
+    )
+
+
+async def get_account_id(region_name: str | None = None) -> str:
+    """Return the AWS account ID of the current caller.
+
+    Args:
+        region_name: AWS region override.
+
+    Returns:
+        12-digit AWS account ID as a string.
+    """
+    identity = await get_caller_identity(region_name)
+    return identity.account_id
+
+
+async def assume_role(
+    role_arn: str,
+    session_name: str,
+    duration_seconds: int = 3600,
+    external_id: str | None = None,
+    region_name: str | None = None,
+) -> AssumedRoleCredentials:
+    """Assume an IAM role and return temporary credentials.
+
+    Args:
+        role_arn: ARN of the role to assume.
+        session_name: Identifier for the assumed-role session (appears in
+            CloudTrail logs).
+        duration_seconds: Credential validity in seconds (900-43200).
+            Defaults to ``3600`` (one hour).
+        external_id: Optional external ID required by the role's trust policy.
+        region_name: AWS region override.
+
+    Returns:
+        An :class:`AssumedRoleCredentials` with temporary access keys.
+
+    Raises:
+        RuntimeError: If the assume-role call fails.
+    """
+    kwargs: dict[str, Any] = {
+        "RoleArn": role_arn,
+        "RoleSessionName": session_name,
+        "DurationSeconds": duration_seconds,
+    }
+    if external_id is not None:
+        kwargs["ExternalId"] = external_id
+
+    try:
+        client = async_client("sts", region_name)
+        resp = await client.call("AssumeRole", **kwargs)
+    except RuntimeError as exc:
+        raise RuntimeError(f"Failed to assume role {role_arn!r}: {exc}") from exc
+
+    creds = resp["Credentials"]
+    return AssumedRoleCredentials(
+        access_key_id=creds["AccessKeyId"],
+        secret_access_key=creds["SecretAccessKey"],
+        session_token=creds["SessionToken"],
+        expiration=creds["Expiration"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Complex utilities
+# ---------------------------------------------------------------------------
+
+
+async def assume_role_session(
+    role_arn: str,
+    session_name: str,
+    duration_seconds: int = 3600,
+    external_id: str | None = None,
+    region_name: str | None = None,
+) -> Any:
+    """Assume an IAM role and return a ready-to-use boto3 Session.
+
+    Combines :func:`assume_role` with ``boto3.Session`` construction so
+    callers can immediately create service clients under the assumed role
+    without manually threading credentials.
+
+    Args:
+        role_arn: ARN of the role to assume.
+        session_name: Identifier for the session (appears in CloudTrail logs).
+        duration_seconds: Credential validity in seconds (default ``3600``).
+        external_id: Optional external ID required by the role's trust policy.
+        region_name: AWS region for the returned session.
+
+    Returns:
+        A ``boto3.Session`` authenticated with the assumed role's temporary
+        credentials.
+
+    Raises:
+        RuntimeError: If the assume-role call fails.
+    """
+    import asyncio
+
+    import boto3
+
+    creds = await assume_role(
+        role_arn,
+        session_name,
+        duration_seconds=duration_seconds,
+        external_id=external_id,
+        region_name=region_name,
+    )
+    kwargs: dict[str, str] = {
+        "aws_access_key_id": creds.access_key_id,
+        "aws_secret_access_key": creds.secret_access_key,
+        "aws_session_token": creds.session_token,
+    }
+    if region_name:
+        kwargs["region_name"] = region_name
+    return await asyncio.to_thread(lambda: boto3.Session(**kwargs))
+
+
+def is_valid_account_id(value: str) -> bool:
+    """Return ``True`` if *value* is a 12-digit AWS account ID.
+
+    Args:
+        value: String to validate.
+
+    Returns:
+        ``True`` if *value* is exactly 12 ASCII digits, ``False`` otherwise.
+    """
+    return value.isdigit() and len(value) == 12

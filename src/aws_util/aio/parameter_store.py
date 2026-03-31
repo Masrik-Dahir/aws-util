@@ -1,15 +1,10 @@
-"""Async wrappers for :mod:`aws_util.parameter_store`."""
+"""Native async Parameter Store utilities — real non-blocking I/O via :mod:`aws_util.aio._engine`."""
 
 from __future__ import annotations
 
-from aws_util._async_wrap import async_wrap
-from aws_util.parameter_store import (
-    delete_parameter as _sync_delete_parameter,
-    get_parameter as _sync_get_parameter,
-    get_parameters_batch as _sync_get_parameters_batch,
-    get_parameters_by_path as _sync_get_parameters_by_path,
-    put_parameter as _sync_put_parameter,
-)
+from typing import Any
+
+from aws_util.aio._engine import async_client
 
 __all__ = [
     "get_parameters_by_path",
@@ -19,8 +14,169 @@ __all__ = [
     "get_parameter",
 ]
 
-get_parameters_by_path = async_wrap(_sync_get_parameters_by_path)
-get_parameters_batch = async_wrap(_sync_get_parameters_batch)
-put_parameter = async_wrap(_sync_put_parameter)
-delete_parameter = async_wrap(_sync_delete_parameter)
-get_parameter = async_wrap(_sync_get_parameter)
+
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+
+
+async def get_parameters_by_path(
+    path: str,
+    recursive: bool = True,
+    with_decryption: bool = True,
+    region_name: str | None = None,
+) -> dict[str, str]:
+    """Fetch all parameters whose path starts with *path* from SSM.
+
+    Uses the ``GetParametersByPath`` API with automatic pagination.
+
+    Args:
+        path: SSM path prefix, e.g. ``"/myapp/prod/"``.
+        recursive: If ``True`` (default), include parameters in sub-paths.
+        with_decryption: Decrypt ``SecureString`` parameters (default ``True``).
+        region_name: AWS region override.
+
+    Returns:
+        A dict mapping the full parameter name -> value for every parameter
+        under *path*.
+
+    Raises:
+        RuntimeError: If the API call fails.
+    """
+    try:
+        client = async_client("ssm", region_name)
+        raw_items = await client.paginate(
+            "GetParametersByPath",
+            result_key="Parameters",
+            Path=path,
+            Recursive=recursive,
+            WithDecryption=with_decryption,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(f"get_parameters_by_path failed for path {path!r}: {exc}") from exc
+    return {p["Name"]: p["Value"] for p in raw_items}
+
+
+async def get_parameters_batch(
+    names: list[str],
+    with_decryption: bool = True,
+    region_name: str | None = None,
+) -> dict[str, str]:
+    """Fetch up to 10 SSM parameters by name in a single API call.
+
+    Args:
+        names: List of parameter names (up to 10).
+        with_decryption: Decrypt ``SecureString`` parameters (default ``True``).
+        region_name: AWS region override.
+
+    Returns:
+        A dict mapping parameter name -> value.  Parameters that do not exist
+        are silently omitted.
+
+    Raises:
+        ValueError: If more than 10 names are supplied.
+        RuntimeError: If the API call fails.
+    """
+    if len(names) > 10:
+        raise ValueError("get_parameters_batch supports at most 10 names per call")
+    try:
+        client = async_client("ssm", region_name)
+        resp = await client.call(
+            "GetParameters",
+            Names=names,
+            WithDecryption=with_decryption,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(f"get_parameters_batch failed: {exc}") from exc
+    return {p["Name"]: p["Value"] for p in resp.get("Parameters", [])}
+
+
+async def put_parameter(
+    name: str,
+    value: str,
+    param_type: str = "String",
+    overwrite: bool = True,
+    description: str = "",
+    region_name: str | None = None,
+) -> None:
+    """Create or update an SSM Parameter Store parameter.
+
+    Args:
+        name: Full parameter name, e.g. ``"/myapp/db/host"``.
+        value: Parameter value.
+        param_type: ``"String"`` (default), ``"StringList"``, or
+            ``"SecureString"``.
+        overwrite: If ``True`` (default), overwrite an existing parameter.
+        description: Human-readable description.
+        region_name: AWS region override.
+
+    Raises:
+        RuntimeError: If the put operation fails.
+    """
+    kwargs: dict[str, Any] = {
+        "Name": name,
+        "Value": value,
+        "Type": param_type,
+        "Overwrite": overwrite,
+    }
+    if description:
+        kwargs["Description"] = description
+    try:
+        client = async_client("ssm", region_name)
+        await client.call("PutParameter", **kwargs)
+    except RuntimeError as exc:
+        raise RuntimeError(f"Failed to put SSM parameter {name!r}: {exc}") from exc
+
+
+async def delete_parameter(
+    name: str,
+    region_name: str | None = None,
+) -> None:
+    """Delete a single SSM parameter.
+
+    Args:
+        name: Full parameter name.
+        region_name: AWS region override.
+
+    Raises:
+        RuntimeError: If the deletion fails.
+    """
+    try:
+        client = async_client("ssm", region_name)
+        await client.call("DeleteParameter", Name=name)
+    except RuntimeError as exc:
+        raise RuntimeError(f"Failed to delete SSM parameter {name!r}: {exc}") from exc
+
+
+async def get_parameter(
+    name: str,
+    with_decryption: bool = True,
+    region_name: str | None = None,
+) -> str:
+    """Fetch a single parameter from AWS SSM Parameter Store.
+
+    Decryption is enabled by default so that ``SecureString`` parameters are
+    returned in plaintext.  Caching is intentionally omitted here; use
+    :func:`aws_util.placeholder.retrieve` (which wraps this with
+    ``lru_cache``) when you need cache-aware resolution.
+
+    Args:
+        name: Full SSM parameter path, e.g. ``"/myapp/db/username"``.
+        with_decryption: Decrypt ``SecureString`` parameters.  Ignored for
+            ``String`` and ``StringList`` types.
+        region_name: AWS region override.  Defaults to the boto3-resolved
+            region.
+
+    Returns:
+        The parameter value as a string.
+
+    Raises:
+        RuntimeError: If the SSM API call fails (parameter not found,
+            permission denied, etc.).
+    """
+    try:
+        client = async_client("ssm", region_name)
+        resp = await client.call("GetParameter", Name=name, WithDecryption=with_decryption)
+        return resp["Parameter"]["Value"]
+    except RuntimeError as exc:
+        raise RuntimeError(f"Error resolving SSM parameter {name!r}: {exc}") from exc
