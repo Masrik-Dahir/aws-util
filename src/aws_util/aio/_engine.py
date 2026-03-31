@@ -155,8 +155,14 @@ class _AsyncCredentialProvider:
             # Double-check after acquiring lock
             if self._creds is not None and not self._needs_refresh():
                 return self._creds
-            self._creds = await asyncio.to_thread(
-                self._session.get_credentials().get_frozen_credentials
+            resolver = self._session.get_credentials()
+            if resolver is None:  # pragma: no cover
+                raise RuntimeError("No AWS credentials available")
+            frozen = await asyncio.to_thread(resolver.get_frozen_credentials)
+            self._creds = Credentials(
+                frozen.access_key or "",
+                frozen.secret_key or "",
+                frozen.token,
             )
             return self._creds
 
@@ -229,7 +235,7 @@ class _Transport:
         if self._session and not self._session.closed:
             await self._session.close()
         if self._connector and not self._connector.closed:
-            self._connector.close()
+            await self._connector.close()
 
 
 # ---------------------------------------------------------------------------
@@ -297,8 +303,10 @@ def _build_request(
     signer = SigV4Auth(credentials, service, region)
     signer.add_auth(aws_request)
 
-    signed_headers = dict(aws_request.headers)
-    return method, aws_request.url, signed_headers, body
+    signed_headers: dict[str, str] = {
+        str(k): str(v) for k, v in aws_request.headers.items()
+    }
+    return str(method), str(aws_request.url), signed_headers, body
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +330,7 @@ def _parse_response(
         "headers": headers,
         "body": io.BytesIO(body),
     }
-    return parser.parse(response_dict, op_model.output_shape)
+    return parser.parse(response_dict, op_model.output_shape)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

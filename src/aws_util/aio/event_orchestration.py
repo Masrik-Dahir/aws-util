@@ -415,9 +415,9 @@ async def saga_orchestrator(
                 InvocationType="RequestResponse",
                 Payload=json.dumps(payload).encode(),
             )
-            resp_payload = resp.get("Payload")
+            resp_payload: Any = resp.get("Payload")
             if hasattr(resp_payload, "read"):
-                resp_payload = resp_payload.read()
+                resp_payload = resp_payload.read()  # type: ignore[union-attr]
             func_error = resp.get("FunctionError")
 
             if func_error:

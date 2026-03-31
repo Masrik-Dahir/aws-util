@@ -147,20 +147,25 @@ class TestCircuitBreaker:
 
 class TestAsyncCredentialProvider:
     async def test_get_loads_and_caches(self) -> None:
-        fake_creds = MagicMock()
         fake_frozen = MagicMock()
+        fake_frozen.access_key = "AKID"
+        fake_frozen.secret_key = "SECRET"
+        fake_frozen.token = "TOKEN"
+        fake_creds = MagicMock()
         fake_creds.get_frozen_credentials = MagicMock(return_value=fake_frozen)
         session = MagicMock()
         session.get_credentials.return_value = fake_creds
 
         provider = _AsyncCredentialProvider(session)
         result = await provider.get()
-        assert result is fake_frozen
+        assert result.access_key == "AKID"
+        assert result.secret_key == "SECRET"
+        assert result.token == "TOKEN"
 
         # Second call should return cached value without calling session again
         session.get_credentials.reset_mock()
         result2 = await provider.get()
-        assert result2 is fake_frozen
+        assert result2 is result
 
     async def test_needs_refresh_true_for_none(self) -> None:
         session = MagicMock()
@@ -186,16 +191,19 @@ class TestAsyncCredentialProvider:
 
     async def test_double_check_locking(self) -> None:
         """Two concurrent .get() calls only load once."""
-        fake_creds = MagicMock()
         fake_frozen = MagicMock()
+        fake_frozen.access_key = "AKID"
+        fake_frozen.secret_key = "SECRET"
+        fake_frozen.token = "TOKEN"
+        fake_creds = MagicMock()
         fake_creds.get_frozen_credentials = MagicMock(return_value=fake_frozen)
         session = MagicMock()
         session.get_credentials.return_value = fake_creds
 
         provider = _AsyncCredentialProvider(session)
         r1, r2 = await asyncio.gather(provider.get(), provider.get())
-        assert r1 is fake_frozen
-        assert r2 is fake_frozen
+        assert r1 is r2  # same cached object
+        assert r1.access_key == "AKID"
 
 
 # ── _Transport ────────────────────────────────────────────────────────
@@ -260,14 +268,14 @@ class TestTransport:
         transport = _Transport(EngineConfig())
         mock_session = AsyncMock()
         mock_session.closed = False
-        mock_connector = MagicMock()
+        mock_connector = AsyncMock()
         mock_connector.closed = False
         transport._session = mock_session
         transport._connector = mock_connector
 
         await transport.close()
         mock_session.close.assert_awaited_once()
-        mock_connector.close.assert_called_once()
+        mock_connector.close.assert_awaited_once()
 
     async def test_close_noop_when_already_closed(self) -> None:
         transport = _Transport(EngineConfig())
@@ -1265,8 +1273,8 @@ class TestTransportCloseEdge:
         """Close with connector open but no session."""
         transport = _Transport(EngineConfig())
         transport._session = None
-        mock_connector = MagicMock()
+        mock_connector = AsyncMock()
         mock_connector.closed = False
         transport._connector = mock_connector
         await transport.close()
-        mock_connector.close.assert_called_once()
+        mock_connector.close.assert_awaited_once()

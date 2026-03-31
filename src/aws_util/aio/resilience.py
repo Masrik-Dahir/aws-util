@@ -251,7 +251,7 @@ def retry_with_backoff(
     base_delay: float = 1.0,
     max_delay: float = 60.0,
     retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
-) -> Callable[[Callable[..., Any]], Callable[..., RetryResult]]:
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for exponential backoff with jitter (async version).
 
     Wraps an async function so that retryable exceptions trigger
@@ -278,7 +278,7 @@ def retry_with_backoff(
 
     def decorator(
         func: Callable[..., Any],
-    ) -> Callable[..., RetryResult]:
+    ) -> Callable[..., Any]:
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> RetryResult:
             last_error: str | None = None

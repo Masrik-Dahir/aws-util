@@ -213,7 +213,7 @@ def _deserialize_items(
         item: dict[str, Any] = {}
         for k, v in raw.items():
             if isinstance(v, dict):
-                item[k] = deserializer.deserialize(v)
+                item[k] = deserializer.deserialize(v)  # type: ignore[arg-type]
             else:
                 item[k] = v
         result.append(item)

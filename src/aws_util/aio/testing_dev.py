@@ -454,9 +454,9 @@ async def lambda_invoke_recorder(
     except RuntimeError as exc:
         raise RuntimeError(f"Failed to invoke {function_name}: {exc}") from exc
 
-    resp_payload = resp.get("Payload")
+    resp_payload: Any = resp.get("Payload")
     if hasattr(resp_payload, "read"):
-        resp_payload = resp_payload.read()
+        resp_payload = resp_payload.read()  # type: ignore[union-attr]
     if isinstance(resp_payload, bytes):
         response_payload = json.loads(resp_payload.decode("utf-8"))
     else:
@@ -569,9 +569,9 @@ async def snapshot_tester(
     except RuntimeError as exc:
         raise RuntimeError(f"Failed to invoke {function_name}: {exc}") from exc
 
-    resp_payload = resp.get("Payload")
+    resp_payload: Any = resp.get("Payload")
     if hasattr(resp_payload, "read"):
-        resp_payload = resp_payload.read()
+        resp_payload = resp_payload.read()  # type: ignore[union-attr]
     if isinstance(resp_payload, bytes):
         current_output = json.loads(resp_payload.decode("utf-8"))
     else:
@@ -582,9 +582,9 @@ async def snapshot_tester(
     baseline_json: str | None = None
     try:
         baseline_resp = await s3.call("GetObject", Bucket=snapshot_bucket, Key=snapshot_key)
-        body = baseline_resp.get("Body")
+        body: Any = baseline_resp.get("Body")
         if hasattr(body, "read"):
-            body = body.read()
+            body = body.read()  # type: ignore[union-attr]
         if isinstance(body, bytes):
             baseline_json = body.decode("utf-8")
         else:

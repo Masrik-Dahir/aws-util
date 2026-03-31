@@ -479,7 +479,9 @@ async def centralized_log_aggregator(
             try:
                 paginator = remote_logs.get_paginator("describe_log_groups")
                 pages = await asyncio.to_thread(
-                    lambda p=paginator, pat=pattern: list(p.paginate(logGroupNamePrefix=pat)),
+                    lambda p=paginator, pat=pattern: list(  # type: ignore[misc]
+                        p.paginate(logGroupNamePrefix=pat)
+                    ),
                 )
                 for page in pages:
                     for lg in page.get("logGroups", []):
@@ -651,7 +653,9 @@ async def multi_account_resource_inventory(
         try:
             paginator = tagging.get_paginator("get_resources")
             pages = await asyncio.to_thread(
-                lambda p=paginator, kw=kwargs: list(p.paginate(**kw)),
+                lambda p=paginator, kw=kwargs: list(  # type: ignore[misc]
+                    p.paginate(**kw)
+                ),
             )
             for page in pages:
                 for mapping in page.get("ResourceTagMappingList", []):

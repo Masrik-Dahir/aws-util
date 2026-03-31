@@ -162,7 +162,7 @@ async def assume_role_session(
     }
     if region_name:
         kwargs["region_name"] = region_name
-    return await asyncio.to_thread(lambda: boto3.Session(**kwargs))
+    return await asyncio.to_thread(lambda: boto3.Session(**kwargs))  # type: ignore[arg-type]
 
 
 def is_valid_account_id(value: str) -> bool:

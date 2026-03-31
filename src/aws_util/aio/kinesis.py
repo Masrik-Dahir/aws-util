@@ -148,7 +148,7 @@ async def list_streams(
         )
     except RuntimeError as exc:
         raise RuntimeError(f"list_streams failed: {exc}") from exc
-    return items
+    return [str(s) for s in items]
 
 
 async def describe_stream(

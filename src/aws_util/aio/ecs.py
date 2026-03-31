@@ -57,7 +57,7 @@ async def list_clusters(
         raise
     except Exception as exc:
         raise RuntimeError(f"list_clusters failed: {exc}") from exc
-    return [item for item in items]
+    return [str(item) for item in items]
 
 
 async def run_task(
@@ -209,7 +209,7 @@ async def list_tasks(
         raise
     except Exception as exc:
         raise RuntimeError(f"list_tasks failed: {exc}") from exc
-    return [item for item in items]
+    return [str(item) for item in items]
 
 
 async def describe_services(

@@ -307,11 +307,11 @@ async def broadcast(
     for group in to_email_groups or []:
         coros.append(
             _send_ses(
-                from_email,
+                from_email or "",
                 group,
                 subject,
                 message,
-                region_name,  # type: ignore[arg-type]
+                region_name,
             )
         )
 
