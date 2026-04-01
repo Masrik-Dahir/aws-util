@@ -1,7 +1,6 @@
 README.md
 pyproject.toml
 src/aws_util/__init__.py
-src/aws_util/_async_wrap.py
 src/aws_util/_client.py
 src/aws_util/acm.py
 src/aws_util/ai_ml_pipelines.py
@@ -34,6 +33,7 @@ src/aws_util/ecs.py
 src/aws_util/event_orchestration.py
 src/aws_util/event_patterns.py
 src/aws_util/eventbridge.py
+src/aws_util/exceptions.py
 src/aws_util/firehose.py
 src/aws_util/glue.py
 src/aws_util/iam.py
@@ -49,6 +49,7 @@ src/aws_util/notifier.py
 src/aws_util/observability.py
 src/aws_util/parameter_store.py
 src/aws_util/placeholder.py
+src/aws_util/py.typed
 src/aws_util/rds.py
 src/aws_util/rekognition.py
 src/aws_util/resilience.py
@@ -182,7 +183,6 @@ tests/test_aio_lambda_.py
 tests/test_aio_lambda_middleware.py
 tests/test_aio_messaging.py
 tests/test_aio_ml_pipeline.py
-tests/test_aio_modules.py
 tests/test_aio_networking.py
 tests/test_aio_notifier.py
 tests/test_aio_observability.py
@@ -236,6 +236,7 @@ tests/test_ecs.py
 tests/test_event_orchestration.py
 tests/test_event_patterns.py
 tests/test_eventbridge.py
+tests/test_exceptions.py
 tests/test_firehose.py
 tests/test_glue.py
 tests/test_iam.py
