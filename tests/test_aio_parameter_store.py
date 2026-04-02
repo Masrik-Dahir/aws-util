@@ -7,6 +7,8 @@ import pytest
 
 from aws_util.aio.parameter_store import (
     delete_parameter,
+    delete_parameters,
+    describe_parameters,
     get_parameter,
     get_parameters_batch,
     get_parameters_by_path,
@@ -147,3 +149,65 @@ async def test_get_parameter_error(monkeypatch):
     monkeypatch.setattr("aws_util.aio.parameter_store.async_client", lambda *a, **kw: mc)
     with pytest.raises(RuntimeError, match="Error resolving SSM parameter"):
         await get_parameter("/x")
+
+
+# ---------------------------------------------------------------------------
+# describe_parameters
+# ---------------------------------------------------------------------------
+
+
+async def test_describe_parameters(monkeypatch):
+    mc = _mc()
+    mc.paginate.return_value = [
+        {"Name": "/app/key1", "Type": "String"},
+        {"Name": "/app/key2", "Type": "SecureString"},
+    ]
+    monkeypatch.setattr("aws_util.aio.parameter_store.async_client", lambda *a, **kw: mc)
+    r = await describe_parameters()
+    assert r == [
+        {"Name": "/app/key1", "Type": "String"},
+        {"Name": "/app/key2", "Type": "SecureString"},
+    ]
+
+
+async def test_describe_parameters_with_filters(monkeypatch):
+    mc = _mc()
+    mc.paginate.return_value = [{"Name": "/app/key1", "Type": "String"}]
+    monkeypatch.setattr("aws_util.aio.parameter_store.async_client", lambda *a, **kw: mc)
+    filters = [{"Key": "Name", "Values": ["/app/key1"]}]
+    r = await describe_parameters(filters=filters)
+    assert r == [{"Name": "/app/key1", "Type": "String"}]
+    mc.paginate.assert_called_once()
+    call_kwargs = mc.paginate.call_args[1]
+    assert call_kwargs["ParameterFilters"] == filters
+
+
+async def test_describe_parameters_error(monkeypatch):
+    mc = _mc(side_effect=RuntimeError("fail"))
+    monkeypatch.setattr("aws_util.aio.parameter_store.async_client", lambda *a, **kw: mc)
+    with pytest.raises(RuntimeError, match="describe_parameters failed"):
+        await describe_parameters()
+
+
+# ---------------------------------------------------------------------------
+# delete_parameters
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_parameters(monkeypatch):
+    mc = _mc({"DeletedParameters": ["/app/a", "/app/b"]})
+    monkeypatch.setattr("aws_util.aio.parameter_store.async_client", lambda *a, **kw: mc)
+    r = await delete_parameters(["/app/a", "/app/b"])
+    assert r == ["/app/a", "/app/b"]
+
+
+async def test_delete_parameters_too_many():
+    with pytest.raises(ValueError, match="at most 10"):
+        await delete_parameters([f"/p{i}" for i in range(11)])
+
+
+async def test_delete_parameters_error(monkeypatch):
+    mc = _mc(side_effect=RuntimeError("fail"))
+    monkeypatch.setattr("aws_util.aio.parameter_store.async_client", lambda *a, **kw: mc)
+    with pytest.raises(RuntimeError, match="delete_parameters failed"):
+        await delete_parameters(["/x"])

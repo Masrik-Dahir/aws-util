@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from aws_util.dynamodb import DynamoKey
+from aws_util.dynamodb import Attr, DynamoKey, Key
 
 __all__ = [
+    "Attr",
     "DynamoKey",
+    "Key",
     "atomic_increment",
     "batch_get",
     "batch_write",
@@ -21,6 +23,7 @@ __all__ = [
     "transact_get",
     "transact_write",
     "update_item",
+    "update_item_raw",
 ]
 
 
@@ -138,6 +141,58 @@ async def update_item(
 
     try:
         return await asyncio.to_thread(_sync_update_item, table_name, key, updates, region_name)
+    except RuntimeError:
+        raise
+
+
+async def update_item_raw(
+    table_name: str,
+    key: DynamoKey | dict[str, Any],
+    update_expression: str,
+    expression_attribute_names: dict[str, str] | None = None,
+    expression_attribute_values: dict[str, Any] | None = None,
+    condition_expression: Any | None = None,
+    return_values: str = "ALL_NEW",
+    region_name: str | None = None,
+) -> dict[str, Any]:
+    """Update an item using a raw DynamoDB update expression.
+
+    Use this for complex expressions that :func:`update_item` cannot
+    build automatically, such as ``if_not_exists``, ``list_append``,
+    ``ADD``, or ``REMOVE`` clauses.
+
+    Args:
+        table_name: DynamoDB table name.
+        key: Primary key of the item to update.
+        update_expression: Raw DynamoDB ``UpdateExpression`` string.
+        expression_attribute_names: Alias mapping for attribute names.
+        expression_attribute_values: Value placeholders used in the
+            expression.
+        condition_expression: Optional condition that must be satisfied.
+        return_values: Which attributes to return after the update.
+            Defaults to ``"ALL_NEW"``.
+        region_name: AWS region override.
+
+    Returns:
+        The item's attributes as a dict.
+
+    Raises:
+        RuntimeError: If the update fails.
+    """
+    from aws_util.dynamodb import update_item_raw as _sync
+
+    try:
+        return await asyncio.to_thread(
+            _sync,
+            table_name,
+            key,
+            update_expression,
+            expression_attribute_names,
+            expression_attribute_values,
+            condition_expression,
+            return_values,
+            region_name,
+        )
     except RuntimeError:
         raise
 

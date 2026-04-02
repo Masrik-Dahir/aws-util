@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from botocore.exceptions import ClientError
+
 # ---------------------------------------------------------------------------
 # Hierarchy
 # ---------------------------------------------------------------------------
@@ -273,6 +275,7 @@ __all__ = [
     "AwsTimeoutError",
     "AwsUtilError",
     "AwsValidationError",
+    "ClientError",
     "classify_aws_error",
     "wrap_aws_error",
 ]

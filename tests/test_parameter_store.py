@@ -5,6 +5,8 @@ import pytest
 
 from aws_util.parameter_store import (
     delete_parameter,
+    delete_parameters,
+    describe_parameters,
     get_parameter,
     get_parameters_batch,
     get_parameters_by_path,
@@ -191,3 +193,108 @@ def test_get_parameter_returns_value(ssm_client):
 def test_get_parameter_runtime_error_on_missing(ssm_client):
     with pytest.raises(RuntimeError, match="Error resolving SSM parameter"):
         get_parameter("/nonexistent/param", region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# describe_parameters
+# ---------------------------------------------------------------------------
+
+
+def test_describe_parameters_returns_all(ssm):
+    result = describe_parameters(region_name=REGION)
+    names = [p["Name"] for p in result]
+    assert "/app/db/host" in names
+    assert "/app/db/port" in names
+    assert "/app/secret" in names
+
+
+def test_describe_parameters_filters_begins_with(ssm):
+    result = describe_parameters(
+        filters=[{"Key": "Name", "Option": "BeginsWith", "Values": ["/app/db"]}],
+        region_name=REGION,
+    )
+    names = [p["Name"] for p in result]
+    assert "/app/db/host" in names
+    assert "/app/db/port" in names
+    assert "/app/secret" not in names
+
+
+def test_describe_parameters_empty_results(ssm):
+    result = describe_parameters(
+        filters=[
+            {"Key": "Name", "Option": "BeginsWith", "Values": ["/nonexistent/"]}
+        ],
+        region_name=REGION,
+    )
+    assert result == []
+
+
+def test_describe_parameters_pagination(monkeypatch):
+    from unittest.mock import MagicMock
+    import aws_util.parameter_store as ps
+
+    page1 = {
+        "Parameters": [{"Name": "/a"}],
+        "NextToken": "tok1",
+    }
+    page2 = {
+        "Parameters": [{"Name": "/b"}],
+    }
+    mock_client = MagicMock()
+    mock_client.describe_parameters.side_effect = [page1, page2]
+    monkeypatch.setattr(ps, "get_client", lambda *a, **kw: mock_client)
+    result = describe_parameters(region_name=REGION)
+    assert len(result) == 2
+    assert result[0]["Name"] == "/a"
+    assert result[1]["Name"] == "/b"
+    assert mock_client.describe_parameters.call_count == 2
+
+
+def test_describe_parameters_runtime_error(monkeypatch):
+    from botocore.exceptions import ClientError
+    from unittest.mock import MagicMock
+    import aws_util.parameter_store as ps
+
+    mock_client = MagicMock()
+    mock_client.describe_parameters.side_effect = ClientError(
+        {"Error": {"Code": "AccessDeniedException", "Message": "Denied"}},
+        "DescribeParameters",
+    )
+    monkeypatch.setattr(ps, "get_client", lambda *a, **kw: mock_client)
+    with pytest.raises(RuntimeError, match="describe_parameters failed"):
+        describe_parameters(region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# delete_parameters (batch)
+# ---------------------------------------------------------------------------
+
+
+def test_delete_parameters_removes_and_returns(ssm):
+    result = delete_parameters(
+        ["/app/db/host", "/app/db/port"], region_name=REGION
+    )
+    assert sorted(result) == ["/app/db/host", "/app/db/port"]
+    # Verify they are actually gone
+    resp = ssm.get_parameters(Names=["/app/db/host", "/app/db/port"])
+    assert resp["Parameters"] == []
+
+
+def test_delete_parameters_too_many_raises():
+    with pytest.raises(ValueError, match="at most 10"):
+        delete_parameters([f"/p/{i}" for i in range(11)], region_name=REGION)
+
+
+def test_delete_parameters_runtime_error(monkeypatch):
+    from botocore.exceptions import ClientError
+    from unittest.mock import MagicMock
+    import aws_util.parameter_store as ps
+
+    mock_client = MagicMock()
+    mock_client.delete_parameters.side_effect = ClientError(
+        {"Error": {"Code": "InternalServerError", "Message": "err"}},
+        "DeleteParameters",
+    )
+    monkeypatch.setattr(ps, "get_client", lambda *a, **kw: mock_client)
+    with pytest.raises(RuntimeError, match="delete_parameters failed"):
+        delete_parameters(["/x"], region_name=REGION)

@@ -11,6 +11,7 @@ import pytest
 from aws_util.aio.s3 import (
     PresignedUrl,
     S3Object,
+    S3ObjectVersion,
     batch_copy,
     copy_object,
     delete_object,
@@ -19,7 +20,9 @@ from aws_util.aio.s3 import (
     download_bytes,
     download_file,
     generate_presigned_post,
+    get_object,
     get_object_metadata,
+    list_object_versions,
     list_objects,
     move_object,
     multipart_upload,
@@ -30,6 +33,7 @@ from aws_util.aio.s3 import (
     sync_folder,
     upload_bytes,
     upload_file,
+    upload_fileobj,
     write_json,
 )
 
@@ -738,3 +742,115 @@ async def test_generate_presigned_post_error(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="Failed to generate presigned POST"):
         await generate_presigned_post("bucket", "key")
+
+
+# ---------------------------------------------------------------------------
+# download_bytes — with version_id
+# ---------------------------------------------------------------------------
+
+
+async def test_download_bytes_with_version_id(monkeypatch):
+    mc = _mc({"Body": b"versioned"})
+    monkeypatch.setattr("aws_util.aio.s3.async_client", lambda *a, **kw: mc)
+    result = await download_bytes("bucket", "key", version_id="v1")
+    assert result == b"versioned"
+    kw = mc.call.call_args[1]
+    assert kw["VersionId"] == "v1"
+
+
+# ---------------------------------------------------------------------------
+# get_object
+# ---------------------------------------------------------------------------
+
+
+async def test_get_object_ok(monkeypatch):
+    mc = _mc({"Body": b"body", "ContentType": "text/plain"})
+    monkeypatch.setattr("aws_util.aio.s3.async_client", lambda *a, **kw: mc)
+    result = await get_object("bucket", "key")
+    assert isinstance(result, dict)
+    assert result["Body"] == b"body"
+    assert result["ContentType"] == "text/plain"
+
+
+async def test_get_object_with_version_id(monkeypatch):
+    mc = _mc({"Body": b"v2-body"})
+    monkeypatch.setattr("aws_util.aio.s3.async_client", lambda *a, **kw: mc)
+    result = await get_object("bucket", "key", version_id="v2")
+    assert result["Body"] == b"v2-body"
+    kw = mc.call.call_args[1]
+    assert kw["VersionId"] == "v2"
+
+
+async def test_get_object_error(monkeypatch):
+    mc = _mc(se=RuntimeError("boom"))
+    monkeypatch.setattr("aws_util.aio.s3.async_client", lambda *a, **kw: mc)
+    with pytest.raises(RuntimeError, match="Failed to get"):
+        await get_object("bucket", "key")
+
+
+# ---------------------------------------------------------------------------
+# list_object_versions
+# ---------------------------------------------------------------------------
+
+
+async def test_list_object_versions_ok(monkeypatch):
+    versions = [
+        S3ObjectVersion(
+            bucket="bucket",
+            key="file.txt",
+            version_id="v1",
+            is_latest=True,
+        ),
+    ]
+    monkeypatch.setattr(
+        "aws_util.aio.s3.asyncio.to_thread",
+        AsyncMock(return_value=versions),
+    )
+    result = await list_object_versions("bucket", prefix="pre/")
+    assert len(result) == 1
+    assert isinstance(result[0], S3ObjectVersion)
+    assert result[0].version_id == "v1"
+
+
+async def test_list_object_versions_error(monkeypatch):
+    monkeypatch.setattr(
+        "aws_util.aio.s3.asyncio.to_thread",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    with pytest.raises(RuntimeError, match="boom"):
+        await list_object_versions("bucket")
+
+
+# ---------------------------------------------------------------------------
+# upload_fileobj
+# ---------------------------------------------------------------------------
+
+
+async def test_upload_fileobj_ok(monkeypatch):
+    monkeypatch.setattr(
+        "aws_util.aio.s3.asyncio.to_thread",
+        AsyncMock(return_value=None),
+    )
+    buf = io.BytesIO(b"file data")
+    await upload_fileobj("bucket", "key", buf, content_type="application/pdf")
+
+
+async def test_upload_fileobj_error(monkeypatch):
+    monkeypatch.setattr(
+        "aws_util.aio.s3.asyncio.to_thread",
+        AsyncMock(side_effect=RuntimeError("upload fail")),
+    )
+    buf = io.BytesIO(b"data")
+    with pytest.raises(RuntimeError, match="upload fail"):
+        await upload_fileobj("bucket", "key", buf)
+
+
+# ---------------------------------------------------------------------------
+# S3ObjectVersion re-export
+# ---------------------------------------------------------------------------
+
+
+def test_s3_object_version_reexport():
+    from aws_util.s3 import S3ObjectVersion as Original
+
+    assert S3ObjectVersion is Original

@@ -9,6 +9,8 @@ from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
     "delete_parameter",
+    "delete_parameters",
+    "describe_parameters",
     "get_parameter",
     "get_parameters_batch",
     "get_parameters_by_path",
@@ -181,3 +183,65 @@ async def get_parameter(
         return resp["Parameter"]["Value"]
     except RuntimeError as exc:
         raise wrap_aws_error(exc, f"Error resolving SSM parameter {name!r}") from exc
+
+
+async def describe_parameters(
+    filters: list[dict[str, object]] | None = None,
+    max_results: int = 50,
+    region_name: str | None = None,
+) -> list[dict[str, object]]:
+    """List SSM parameters with optional filters.
+
+    Uses ``DescribeParameters`` with automatic pagination.
+
+    Args:
+        filters: Optional list of SSM ``ParameterFilters`` dicts.
+        max_results: Page size per API call (1–50, default ``50``).
+        region_name: AWS region override.
+
+    Returns:
+        A list of parameter metadata dicts as returned by SSM.
+
+    Raises:
+        RuntimeError: If the API call fails.
+    """
+    try:
+        client = async_client("ssm", region_name)
+        kwargs: dict[str, Any] = {"MaxResults": max_results}
+        if filters:
+            kwargs["ParameterFilters"] = filters
+        items = await client.paginate(
+            "DescribeParameters",
+            result_key="Parameters",
+            **kwargs,
+        )
+        return items
+    except RuntimeError as exc:
+        raise wrap_aws_error(exc, "describe_parameters failed") from exc
+
+
+async def delete_parameters(
+    names: list[str],
+    region_name: str | None = None,
+) -> list[str]:
+    """Delete up to 10 SSM parameters in a single API call.
+
+    Args:
+        names: List of parameter names to delete (up to 10).
+        region_name: AWS region override.
+
+    Returns:
+        List of parameter names that were successfully deleted.
+
+    Raises:
+        ValueError: If more than 10 names are supplied.
+        RuntimeError: If the API call fails.
+    """
+    if len(names) > 10:
+        raise ValueError("delete_parameters supports at most 10 names per call")
+    try:
+        client = async_client("ssm", region_name)
+        resp = await client.call("DeleteParameters", Names=names)
+    except RuntimeError as exc:
+        raise wrap_aws_error(exc, f"delete_parameters failed for {names!r}") from exc
+    return resp.get("DeletedParameters", [])

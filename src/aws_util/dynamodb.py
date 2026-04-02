@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import boto3
-from boto3.dynamodb.conditions import ConditionBase
+from boto3.dynamodb.conditions import Attr, ConditionBase, Key
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict
 
@@ -11,7 +11,9 @@ from aws_util._client import get_client
 from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
+    "Attr",
     "DynamoKey",
+    "Key",
     "atomic_increment",
     "batch_get",
     "batch_write",
@@ -24,6 +26,7 @@ __all__ = [
     "transact_get",
     "transact_write",
     "update_item",
+    "update_item_raw",
 ]
 
 # ---------------------------------------------------------------------------
@@ -168,6 +171,84 @@ def update_item(
         )
     except ClientError as exc:
         raise wrap_aws_error(exc, f"update_item failed on {table_name!r}") from exc
+    return resp.get("Attributes", {})
+
+
+def update_item_raw(
+    table_name: str,
+    key: DynamoKey | dict[str, Any],
+    update_expression: str,
+    expression_attribute_names: dict[str, str] | None = None,
+    expression_attribute_values: dict[str, Any] | None = None,
+    condition_expression: str | ConditionBase | None = None,
+    return_values: str = "ALL_NEW",
+    region_name: str | None = None,
+) -> dict[str, Any]:
+    """Update an item using a raw DynamoDB update expression.
+
+    Use this for complex expressions that :func:`update_item` cannot
+    build automatically, such as ``if_not_exists``, ``list_append``,
+    ``ADD``, or ``REMOVE`` clauses.
+
+    Example::
+
+        update_item_raw(
+            "my-table",
+            {"pk": "order#1"},
+            update_expression=(
+                "SET #p = if_not_exists(#p, :zero) + :inc, "
+                "#lu = :ts"
+            ),
+            expression_attribute_names={
+                "#p": "processed_count",
+                "#lu": "last_updated",
+            },
+            expression_attribute_values={
+                ":zero": 0,
+                ":inc": 1,
+                ":ts": "2024-01-01T00:00:00Z",
+            },
+        )
+
+    Args:
+        table_name: DynamoDB table name.
+        key: Primary key of the item to update.
+        update_expression: Raw DynamoDB ``UpdateExpression`` string.
+        expression_attribute_names: Alias mapping for attribute names
+            (handles reserved words).
+        expression_attribute_values: Value placeholders used in the
+            expression.
+        condition_expression: Optional condition that must be satisfied.
+        return_values: Which attributes to return after the update.
+            Defaults to ``"ALL_NEW"``.
+        region_name: AWS region override.
+
+    Returns:
+        The item's attributes as a dict (shape depends on
+        *return_values*).
+
+    Raises:
+        RuntimeError: If the update fails.
+    """
+    table = _table_resource(table_name, region_name)
+    raw_key = key.as_dict() if isinstance(key, DynamoKey) else key
+
+    kwargs: dict[str, Any] = {
+        "Key": raw_key,
+        "UpdateExpression": update_expression,
+        "ReturnValues": return_values,
+    }
+    if expression_attribute_names:
+        kwargs["ExpressionAttributeNames"] = expression_attribute_names
+    if expression_attribute_values:
+        kwargs["ExpressionAttributeValues"] = expression_attribute_values
+    if condition_expression is not None:
+        kwargs["ConditionExpression"] = condition_expression
+
+    try:
+        resp = table.update_item(**kwargs)
+    except ClientError as exc:
+        raise wrap_aws_error(exc, f"update_item_raw failed on {table_name!r}") from exc
     return resp.get("Attributes", {})
 
 
@@ -524,8 +605,6 @@ def put_if_not_exists(
         RuntimeError: If the write fails for a reason other than the condition
             not being met.
     """
-    from boto3.dynamodb.conditions import Attr
-
     table = _table_resource(table_name, region_name)
     try:
         table.put_item(

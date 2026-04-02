@@ -17,6 +17,7 @@ from aws_util.exceptions import AwsServiceError, wrap_aws_error
 __all__ = [
     "PresignedUrl",
     "S3Object",
+    "S3ObjectVersion",
     "batch_copy",
     "copy_object",
     "delete_object",
@@ -25,7 +26,9 @@ __all__ = [
     "download_bytes",
     "download_file",
     "generate_presigned_post",
+    "get_object",
     "get_object_metadata",
+    "list_object_versions",
     "list_objects",
     "move_object",
     "multipart_upload",
@@ -36,6 +39,7 @@ __all__ = [
     "sync_folder",
     "upload_bytes",
     "upload_file",
+    "upload_fileobj",
     "write_json",
 ]
 
@@ -54,6 +58,21 @@ class S3Object(BaseModel):
     size: int | None = None
     last_modified: datetime | None = None
     etag: str | None = None
+
+
+class S3ObjectVersion(BaseModel):
+    """Metadata for a specific version of an S3 object."""
+
+    model_config = ConfigDict(frozen=True)
+
+    bucket: str
+    key: str
+    version_id: str
+    is_latest: bool = False
+    last_modified: datetime | None = None
+    etag: str | None = None
+    size: int | None = None
+    is_delete_marker: bool = False
 
 
 class PresignedUrl(BaseModel):
@@ -167,6 +186,7 @@ def download_file(
 def download_bytes(
     bucket: str,
     key: str,
+    version_id: str | None = None,
     region_name: str | None = None,
 ) -> bytes:
     """Download an S3 object and return its contents as bytes.
@@ -174,6 +194,8 @@ def download_bytes(
     Args:
         bucket: Source S3 bucket name.
         key: Source object key.
+        version_id: Optional S3 version ID to download a specific
+            version.
         region_name: AWS region override.
 
     Returns:
@@ -183,11 +205,48 @@ def download_bytes(
         RuntimeError: If the download fails.
     """
     client = get_client("s3", region_name)
+    kwargs: dict[str, Any] = {"Bucket": bucket, "Key": key}
+    if version_id is not None:
+        kwargs["VersionId"] = version_id
     try:
-        resp = client.get_object(Bucket=bucket, Key=key)
+        resp = client.get_object(**kwargs)
         return resp["Body"].read()
     except ClientError as exc:
         raise wrap_aws_error(exc, f"Failed to download s3://{bucket}/{key}") from exc
+
+
+def get_object(
+    bucket: str,
+    key: str,
+    version_id: str | None = None,
+    region_name: str | None = None,
+) -> dict[str, Any]:
+    """Fetch an S3 object and return the full response.
+
+    Unlike :func:`download_bytes`, the response ``Body`` is returned as
+    a streaming file-like object that the caller can ``.read()`` lazily.
+
+    Args:
+        bucket: S3 bucket name.
+        key: Object key.
+        version_id: Optional version ID for versioned buckets.
+        region_name: AWS region override.
+
+    Returns:
+        The raw boto3 ``GetObject`` response dict, including a
+        streaming ``Body``, ``ContentType``, ``ContentLength``, etc.
+
+    Raises:
+        RuntimeError: If the download fails.
+    """
+    client = get_client("s3", region_name)
+    kwargs: dict[str, Any] = {"Bucket": bucket, "Key": key}
+    if version_id is not None:
+        kwargs["VersionId"] = version_id
+    try:
+        return client.get_object(**kwargs)
+    except ClientError as exc:
+        raise wrap_aws_error(exc, f"Failed to get s3://{bucket}/{key}") from exc
 
 
 def list_objects(
@@ -787,4 +846,111 @@ def generate_presigned_post(
     except ClientError as exc:
         raise wrap_aws_error(
             exc, f"Failed to generate presigned POST for s3://{bucket}/{key}"
+        ) from exc
+
+
+def list_object_versions(
+    bucket: str,
+    prefix: str = "",
+    region_name: str | None = None,
+) -> list[S3ObjectVersion]:
+    """List all versions of objects in a versioned S3 bucket.
+
+    Handles pagination automatically.
+
+    Args:
+        bucket: S3 bucket name.
+        prefix: Key prefix filter.
+        region_name: AWS region override.
+
+    Returns:
+        A list of :class:`S3ObjectVersion` instances.
+
+    Raises:
+        RuntimeError: If the list operation fails.
+    """
+    client = get_client("s3", region_name)
+    versions: list[S3ObjectVersion] = []
+    kwargs: dict[str, Any] = {"Bucket": bucket}
+    if prefix:
+        kwargs["Prefix"] = prefix
+
+    try:
+        while True:
+            resp = client.list_object_versions(**kwargs)
+            for v in resp.get("Versions", []):
+                versions.append(
+                    S3ObjectVersion(
+                        bucket=bucket,
+                        key=v["Key"],
+                        version_id=v.get("VersionId", "null"),
+                        is_latest=v.get("IsLatest", False),
+                        last_modified=v.get("LastModified"),
+                        etag=(v.get("ETag", "").strip('"') or None),
+                        size=v.get("Size"),
+                    )
+                )
+            for dm in resp.get("DeleteMarkers", []):
+                versions.append(
+                    S3ObjectVersion(
+                        bucket=bucket,
+                        key=dm["Key"],
+                        version_id=dm.get("VersionId", "null"),
+                        is_latest=dm.get("IsLatest", False),
+                        last_modified=dm.get("LastModified"),
+                        is_delete_marker=True,
+                    )
+                )
+            if resp.get("IsTruncated"):
+                kwargs["KeyMarker"] = resp["NextKeyMarker"]
+                kwargs["VersionIdMarker"] = resp["NextVersionIdMarker"]
+            else:
+                break
+    except ClientError as exc:
+        raise wrap_aws_error(
+            exc,
+            f"Failed to list versions in s3://{bucket}/{prefix}",
+        ) from exc
+    return versions
+
+
+def upload_fileobj(
+    bucket: str,
+    key: str,
+    fileobj: IO[bytes],
+    content_type: str | None = None,
+    region_name: str | None = None,
+) -> None:
+    """Upload a file-like object to S3 using managed transfer.
+
+    Uses boto3's ``upload_fileobj`` which automatically handles
+    multipart uploads for large objects.
+
+    Args:
+        bucket: Destination S3 bucket name.
+        key: Destination object key.
+        fileobj: A binary file-like object (must support ``.read()``).
+        content_type: Optional ``Content-Type`` header.
+        region_name: AWS region override.
+
+    Raises:
+        RuntimeError: If the upload fails.
+    """
+    client = get_client("s3", region_name)
+    extra: dict[str, str] | None = None
+    if content_type:
+        extra = {"ContentType": content_type}
+    try:
+        kwargs: dict[str, Any] = {
+            "Fileobj": fileobj,
+            "Bucket": bucket,
+            "Key": key,
+        }
+        if extra is not None:
+            kwargs["ExtraArgs"] = extra
+        client.upload_fileobj(**kwargs)
+    except ClientError as exc:
+        raise wrap_aws_error(
+            exc,
+            f"Failed to upload fileobj to s3://{bucket}/{key}",
         ) from exc

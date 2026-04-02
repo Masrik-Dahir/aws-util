@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from aws_util.aio.dynamodb import (
+    Attr,
     DynamoKey,
+    Key,
     _build_update_expression,
     _serialize_key,
     atomic_increment,
@@ -21,6 +23,7 @@ from aws_util.aio.dynamodb import (
     transact_get,
     transact_write,
     update_item,
+    update_item_raw,
 )
 
 
@@ -398,3 +401,57 @@ async def test_put_if_not_exists_runtime_error(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="boom"):
         await put_if_not_exists("table", {"pk": "v1"}, "pk")
+
+
+# ---------------------------------------------------------------------------
+# update_item_raw
+# ---------------------------------------------------------------------------
+
+
+async def test_update_item_raw_ok(monkeypatch):
+    monkeypatch.setattr(
+        "aws_util.aio.dynamodb.asyncio.to_thread",
+        AsyncMock(return_value={"pk": "v1", "counter": 1}),
+    )
+    result = await update_item_raw(
+        "table",
+        {"pk": "v1"},
+        "SET #c = :v",
+        expression_attribute_names={"#c": "counter"},
+        expression_attribute_values={":v": 1},
+        condition_expression="attribute_exists(pk)",
+        return_values="ALL_NEW",
+    )
+    assert result == {"pk": "v1", "counter": 1}
+
+
+async def test_update_item_raw_runtime_error(monkeypatch):
+    monkeypatch.setattr(
+        "aws_util.aio.dynamodb.asyncio.to_thread",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    with pytest.raises(RuntimeError, match="boom"):
+        await update_item_raw(
+            "table",
+            {"pk": "v1"},
+            "SET #c = :v",
+            expression_attribute_names={"#c": "counter"},
+            expression_attribute_values={":v": 1},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Re-exports: Key & Attr
+# ---------------------------------------------------------------------------
+
+
+def test_key_reexport():
+    from boto3.dynamodb.conditions import Key as BotoKey
+
+    assert Key is BotoKey
+
+
+def test_attr_reexport():
+    from boto3.dynamodb.conditions import Attr as BotoAttr
+
+    assert Attr is BotoAttr

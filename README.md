@@ -35,10 +35,10 @@ This package ships a PEP 561 `py.typed` marker — mypy and pyright will pick up
 | # | Module | AWS Service | Key Utilities |
 |---|---|---|---|
 | 1 | `placeholder` | SSM + Secrets Manager | `retrieve` — resolves `${ssm:...}` / `${secret:...}` placeholders |
-| 2 | `parameter_store` | SSM Parameter Store | `get_parameter`, `put_parameter`, `delete_parameter`, **`get_parameters_by_path`**, **`get_parameters_batch`** |
+| 2 | `parameter_store` | SSM Parameter Store | `get_parameter`, `put_parameter`, `delete_parameter`, **`get_parameters_by_path`**, **`get_parameters_batch`**, **`describe_parameters`**, **`delete_parameters`** |
 | 3 | `secrets_manager` | Secrets Manager | `get_secret`, **`create_secret`**, **`update_secret`**, **`delete_secret`**, **`list_secrets`**, **`rotate_secret`** |
-| 4 | `s3` | S3 | upload, download, list, copy, delete, presigned URL, **`delete_prefix`**, **`move_object`**, **`batch_copy`**, **`download_as_text`**, **`get_object_metadata`** |
-| 5 | `dynamodb` | DynamoDB | get, put, update, delete, query, scan, batch |
+| 4 | `s3` | S3 | upload, download, list, copy, delete, presigned URL, **`delete_prefix`**, **`move_object`**, **`batch_copy`**, **`download_as_text`**, **`get_object_metadata`**, **`get_object`**, **`list_object_versions`**, **`upload_fileobj`** |
+| 5 | `dynamodb` | DynamoDB | get, put, update, delete, query, scan, batch, **`update_item_raw`**, **`Key`**, **`Attr`** (re-exported) |
 | 6 | `sqs` | SQS | send, receive, delete, batch, purge, **`send_large_batch`**, **`wait_for_message`**, **`drain_queue`**, **`replay_dlq`** |
 | 7 | `sns` | SNS | publish, publish_batch, **publish_fan_out**, **create_topic_if_not_exists** |
 | 8 | `lambda_` | Lambda | invoke, invoke_async |
@@ -1658,6 +1658,7 @@ from aws_util.exceptions import (
     AwsTimeoutError,       # Polling / operation timeout (also extends TimeoutError)
     wrap_aws_error,        # Classify any exception into the hierarchy
     classify_aws_error,    # Classify a botocore ClientError by error code
+    ClientError,           # Re-exported from botocore for convenience
 )
 ```
 

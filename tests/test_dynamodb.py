@@ -6,7 +6,9 @@ import pytest
 from boto3.dynamodb.conditions import Attr, Key
 
 from aws_util.dynamodb import (
+    Attr as AwsUtilAttr,
     DynamoKey,
+    Key as AwsUtilKey,
     atomic_increment,
     batch_get,
     batch_write,
@@ -19,6 +21,7 @@ from aws_util.dynamodb import (
     transact_get,
     transact_write,
     update_item,
+    update_item_raw,
 )
 
 REGION = "us-east-1"
@@ -664,3 +667,126 @@ def test_transact_get_runtime_error(monkeypatch):
     with patch("aws_util.dynamodb.get_client", return_value=mock_client):
         with pytest.raises(RuntimeError, match="transact_get failed"):
             transact_get([{"Get": {"TableName": TABLE, "Key": {"pk": {"S": "x"}}}}], region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# update_item_raw
+# ---------------------------------------------------------------------------
+
+
+def test_update_item_raw_simple_set(dynamodb_client):
+    """update_item_raw with a simple SET expression."""
+    put_item(TABLE, {"pk": "uir#1", "status": "pending"}, region_name=REGION)
+    result = update_item_raw(
+        TABLE,
+        {"pk": "uir#1"},
+        update_expression="SET #s = :val",
+        expression_attribute_names={"#s": "status"},
+        expression_attribute_values={":val": "complete"},
+        region_name=REGION,
+    )
+    assert result["status"] == "complete"
+
+
+def test_update_item_raw_if_not_exists(dynamodb_client):
+    """update_item_raw with if_not_exists pattern."""
+    put_item(TABLE, {"pk": "uir#2"}, region_name=REGION)
+    result = update_item_raw(
+        TABLE,
+        {"pk": "uir#2"},
+        update_expression="SET #c = if_not_exists(#c, :zero) + :inc",
+        expression_attribute_names={"#c": "counter"},
+        expression_attribute_values={":zero": 0, ":inc": 5},
+        region_name=REGION,
+    )
+    assert result["counter"] == 5
+
+    # Call again — should increment from 5 to 8
+    result = update_item_raw(
+        TABLE,
+        {"pk": "uir#2"},
+        update_expression="SET #c = if_not_exists(#c, :zero) + :inc",
+        expression_attribute_names={"#c": "counter"},
+        expression_attribute_values={":zero": 0, ":inc": 3},
+        region_name=REGION,
+    )
+    assert result["counter"] == 8
+
+
+def test_update_item_raw_with_dynamo_key(dynamodb_client):
+    """update_item_raw accepts a DynamoKey instead of a dict."""
+    put_item(TABLE, {"pk": "uir#3", "val": "old"}, region_name=REGION)
+    key = DynamoKey(partition_key="pk", partition_value="uir#3")
+    result = update_item_raw(
+        TABLE,
+        key,
+        update_expression="SET #v = :new_val",
+        expression_attribute_names={"#v": "val"},
+        expression_attribute_values={":new_val": "new"},
+        region_name=REGION,
+    )
+    assert result["val"] == "new"
+
+
+def test_update_item_raw_condition_expression_failure(dynamodb_client):
+    """update_item_raw raises RuntimeError when condition_expression fails."""
+    put_item(TABLE, {"pk": "uir#4", "version": 1}, region_name=REGION)
+    with pytest.raises(RuntimeError, match="update_item_raw failed"):
+        update_item_raw(
+            TABLE,
+            {"pk": "uir#4"},
+            update_expression="SET #v = :new_ver",
+            expression_attribute_names={"#v": "version"},
+            expression_attribute_values={":new_ver": 2, ":expected": 99},
+            condition_expression=Attr("version").eq(99),
+            region_name=REGION,
+        )
+
+
+def test_update_item_raw_no_names_or_values(dynamodb_client):
+    """update_item_raw with no expression_attribute_names or values."""
+    put_item(TABLE, {"pk": "uir#5", "qty": 42}, region_name=REGION)
+    result = update_item_raw(
+        TABLE,
+        {"pk": "uir#5"},
+        update_expression="REMOVE qty",
+        region_name=REGION,
+    )
+    assert "qty" not in result
+
+
+def test_update_item_raw_runtime_error(monkeypatch):
+    """update_item_raw wraps ClientError in RuntimeError."""
+    from botocore.exceptions import ClientError
+    import aws_util.dynamodb as ddb
+
+    def bad_table_resource(table_name, region_name=None):
+        class BadTable:
+            def update_item(self, **kwargs):
+                raise ClientError(
+                    {"Error": {"Code": "ResourceNotFoundException", "Message": "no table"}},
+                    "UpdateItem",
+                )
+        return BadTable()
+
+    monkeypatch.setattr(ddb, "_table_resource", bad_table_resource)
+    with pytest.raises(RuntimeError, match="update_item_raw failed"):
+        update_item_raw(
+            "no-table",
+            {"pk": "x"},
+            update_expression="SET #a = :v",
+            expression_attribute_names={"#a": "attr"},
+            expression_attribute_values={":v": 1},
+            region_name=REGION,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Key / Attr re-exports
+# ---------------------------------------------------------------------------
+
+
+def test_key_and_attr_importable_from_aws_util_dynamodb():
+    """Key and Attr re-exported from aws_util.dynamodb match boto3 originals."""
+    assert AwsUtilKey is Key
+    assert AwsUtilAttr is Attr

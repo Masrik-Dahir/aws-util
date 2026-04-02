@@ -11,11 +11,12 @@ from typing import IO, Any
 
 from aws_util.aio._engine import async_client
 from aws_util.exceptions import AwsServiceError, wrap_aws_error
-from aws_util.s3 import PresignedUrl, S3Object
+from aws_util.s3 import PresignedUrl, S3Object, S3ObjectVersion
 
 __all__ = [
     "PresignedUrl",
     "S3Object",
+    "S3ObjectVersion",
     "batch_copy",
     "copy_object",
     "delete_object",
@@ -24,7 +25,9 @@ __all__ = [
     "download_bytes",
     "download_file",
     "generate_presigned_post",
+    "get_object",
     "get_object_metadata",
+    "list_object_versions",
     "list_objects",
     "move_object",
     "multipart_upload",
@@ -35,6 +38,7 @@ __all__ = [
     "sync_folder",
     "upload_bytes",
     "upload_file",
+    "upload_fileobj",
     "write_json",
 ]
 
@@ -140,6 +144,7 @@ async def download_file(
 async def download_bytes(
     bucket: str,
     key: str,
+    version_id: str | None = None,
     region_name: str | None = None,
 ) -> bytes:
     """Download an S3 object and return its contents as bytes.
@@ -147,6 +152,8 @@ async def download_bytes(
     Args:
         bucket: Source S3 bucket name.
         key: Source object key.
+        version_id: Optional S3 version ID to download a specific
+            version.
         region_name: AWS region override.
 
     Returns:
@@ -157,7 +164,10 @@ async def download_bytes(
     """
     try:
         client = async_client("s3", region_name)
-        resp = await client.call("GetObject", Bucket=bucket, Key=key)
+        kwargs: dict[str, Any] = {"Bucket": bucket, "Key": key}
+        if version_id is not None:
+            kwargs["VersionId"] = version_id
+        resp = await client.call("GetObject", **kwargs)
         body = resp["Body"]
         if isinstance(body, bytes):
             return body
@@ -790,3 +800,95 @@ async def generate_presigned_post(
         raise wrap_aws_error(
             exc, f"Failed to generate presigned POST for s3://{bucket}/{key}"
         ) from exc
+
+
+async def get_object(
+    bucket: str,
+    key: str,
+    version_id: str | None = None,
+    region_name: str | None = None,
+) -> dict[str, Any]:
+    """Fetch an S3 object and return the full response.
+
+    Unlike :func:`download_bytes`, the response ``Body`` is returned
+    as raw bytes that the caller can process directly.
+
+    Args:
+        bucket: S3 bucket name.
+        key: Object key.
+        version_id: Optional version ID for versioned buckets.
+        region_name: AWS region override.
+
+    Returns:
+        The parsed ``GetObject`` response dict, with ``Body`` as
+        bytes.
+
+    Raises:
+        RuntimeError: If the download fails.
+    """
+    try:
+        client = async_client("s3", region_name)
+        kwargs: dict[str, Any] = {"Bucket": bucket, "Key": key}
+        if version_id is not None:
+            kwargs["VersionId"] = version_id
+        return await client.call("GetObject", **kwargs)
+    except RuntimeError as exc:
+        raise wrap_aws_error(exc, f"Failed to get s3://{bucket}/{key}") from exc
+
+
+async def list_object_versions(
+    bucket: str,
+    prefix: str = "",
+    region_name: str | None = None,
+) -> list[S3ObjectVersion]:
+    """List all versions of objects in a versioned S3 bucket.
+
+    Handles pagination automatically.
+
+    Args:
+        bucket: S3 bucket name.
+        prefix: Key prefix filter.
+        region_name: AWS region override.
+
+    Returns:
+        A list of :class:`S3ObjectVersion` instances.
+
+    Raises:
+        RuntimeError: If the list operation fails.
+    """
+    from aws_util.s3 import list_object_versions as _sync
+
+    try:
+        return await asyncio.to_thread(_sync, bucket, prefix, region_name)
+    except RuntimeError:
+        raise
+
+
+async def upload_fileobj(
+    bucket: str,
+    key: str,
+    fileobj: IO[bytes],
+    content_type: str | None = None,
+    region_name: str | None = None,
+) -> None:
+    """Upload a file-like object to S3 using managed transfer.
+
+    Uses boto3's ``upload_fileobj`` which automatically handles
+    multipart uploads for large objects.
+
+    Args:
+        bucket: Destination S3 bucket name.
+        key: Destination object key.
+        fileobj: A binary file-like object (must support ``.read()``).
+        content_type: Optional ``Content-Type`` header.
+        region_name: AWS region override.
+
+    Raises:
+        RuntimeError: If the upload fails.
+    """
+    from aws_util.s3 import upload_fileobj as _sync
+
+    try:
+        await asyncio.to_thread(_sync, bucket, key, fileobj, content_type, region_name)
+    except RuntimeError:
+        raise

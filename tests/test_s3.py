@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from aws_util.s3 import (
+    S3ObjectVersion,
     batch_copy,
     copy_object,
     delete_object,
@@ -13,7 +14,9 @@ from aws_util.s3 import (
     download_bytes,
     download_file,
     generate_presigned_post,
+    get_object,
     get_object_metadata,
+    list_object_versions,
     list_objects,
     move_object,
     multipart_upload,
@@ -24,6 +27,7 @@ from aws_util.s3 import (
     sync_folder,
     upload_bytes,
     upload_file,
+    upload_fileobj,
     write_json,
 )
 
@@ -585,3 +589,223 @@ def test_generate_presigned_post_runtime_error(monkeypatch):
     monkeypatch.setattr(s3mod, "get_client", lambda *a, **kw: mock_client)
     with pytest.raises(RuntimeError, match="Failed to generate presigned POST"):
         generate_presigned_post(BUCKET, "k", region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# download_bytes — version_id branch
+# ---------------------------------------------------------------------------
+
+
+def test_download_bytes_with_version_id(s3_client):
+    s3_client.put_bucket_versioning(
+        Bucket=BUCKET,
+        VersioningConfiguration={"Status": "Enabled"},
+    )
+    s3_client.put_object(Bucket=BUCKET, Key="versioned.txt", Body=b"v1")
+    resp2 = s3_client.put_object(Bucket=BUCKET, Key="versioned.txt", Body=b"v2")
+    v2_id = resp2["VersionId"]
+
+    # Latest should be v2
+    assert download_bytes(BUCKET, "versioned.txt", region_name=REGION) == b"v2"
+
+    # Fetch the specific version
+    result = download_bytes(
+        BUCKET, "versioned.txt", version_id=v2_id, region_name=REGION
+    )
+    assert result == b"v2"
+
+
+# ---------------------------------------------------------------------------
+# get_object
+# ---------------------------------------------------------------------------
+
+
+def test_get_object_returns_body(s3_client):
+    upload_bytes(BUCKET, "obj.txt", b"hello object", region_name=REGION)
+    resp = get_object(BUCKET, "obj.txt", region_name=REGION)
+    assert resp["Body"].read() == b"hello object"
+    assert "ContentLength" in resp
+
+
+def test_get_object_with_version_id(s3_client):
+    s3_client.put_bucket_versioning(
+        Bucket=BUCKET,
+        VersioningConfiguration={"Status": "Enabled"},
+    )
+    r1 = s3_client.put_object(Bucket=BUCKET, Key="ver.txt", Body=b"first")
+    s3_client.put_object(Bucket=BUCKET, Key="ver.txt", Body=b"second")
+    v1_id = r1["VersionId"]
+
+    resp = get_object(BUCKET, "ver.txt", version_id=v1_id, region_name=REGION)
+    assert resp["Body"].read() == b"first"
+
+
+def test_get_object_runtime_error(monkeypatch):
+    from botocore.exceptions import ClientError
+    from unittest.mock import MagicMock
+    import aws_util.s3 as s3mod
+
+    mock_client = MagicMock()
+    mock_client.get_object.side_effect = ClientError(
+        {"Error": {"Code": "NoSuchKey", "Message": "not found"}},
+        "GetObject",
+    )
+    monkeypatch.setattr(s3mod, "get_client", lambda *a, **kw: mock_client)
+    with pytest.raises(RuntimeError, match="Failed to get"):
+        get_object(BUCKET, "nonexistent", region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# list_object_versions
+# ---------------------------------------------------------------------------
+
+
+def test_list_object_versions_multiple(s3_client):
+    s3_client.put_bucket_versioning(
+        Bucket=BUCKET,
+        VersioningConfiguration={"Status": "Enabled"},
+    )
+    s3_client.put_object(Bucket=BUCKET, Key="doc.txt", Body=b"v1")
+    s3_client.put_object(Bucket=BUCKET, Key="doc.txt", Body=b"v2")
+    s3_client.put_object(Bucket=BUCKET, Key="doc.txt", Body=b"v3")
+
+    versions = list_object_versions(BUCKET, region_name=REGION)
+    assert len(versions) == 3
+    assert all(isinstance(v, S3ObjectVersion) for v in versions)
+    assert all(v.key == "doc.txt" for v in versions)
+    assert all(v.bucket == BUCKET for v in versions)
+    # Exactly one version should be marked latest
+    latest = [v for v in versions if v.is_latest]
+    assert len(latest) == 1
+
+
+def test_list_object_versions_empty(s3_client):
+    s3_client.put_bucket_versioning(
+        Bucket=BUCKET,
+        VersioningConfiguration={"Status": "Enabled"},
+    )
+    versions = list_object_versions(BUCKET, region_name=REGION)
+    assert versions == []
+
+
+def test_list_object_versions_with_prefix(s3_client):
+    s3_client.put_bucket_versioning(
+        Bucket=BUCKET,
+        VersioningConfiguration={"Status": "Enabled"},
+    )
+    s3_client.put_object(Bucket=BUCKET, Key="alpha/a.txt", Body=b"a1")
+    s3_client.put_object(Bucket=BUCKET, Key="alpha/a.txt", Body=b"a2")
+    s3_client.put_object(Bucket=BUCKET, Key="beta/b.txt", Body=b"b1")
+
+    versions = list_object_versions(BUCKET, prefix="alpha/", region_name=REGION)
+    assert len(versions) == 2
+    assert all(v.key.startswith("alpha/") for v in versions)
+
+
+def test_list_object_versions_runtime_error(monkeypatch):
+    from botocore.exceptions import ClientError
+    from unittest.mock import MagicMock
+    import aws_util.s3 as s3mod
+
+    mock_client = MagicMock()
+    mock_client.list_object_versions.side_effect = ClientError(
+        {"Error": {"Code": "NoSuchBucket", "Message": "not found"}},
+        "ListObjectVersions",
+    )
+    monkeypatch.setattr(s3mod, "get_client", lambda *a, **kw: mock_client)
+    with pytest.raises(RuntimeError, match="Failed to list versions"):
+        list_object_versions(BUCKET, region_name=REGION)
+
+
+# ---------------------------------------------------------------------------
+# upload_fileobj
+# ---------------------------------------------------------------------------
+
+
+def test_upload_fileobj_from_bytesio(s3_client):
+    import io
+
+    fileobj = io.BytesIO(b"fileobj content")
+    upload_fileobj(BUCKET, "fileobj.txt", fileobj, region_name=REGION)
+    result = download_bytes(BUCKET, "fileobj.txt", region_name=REGION)
+    assert result == b"fileobj content"
+
+
+def test_upload_fileobj_with_content_type(s3_client):
+    import io
+
+    fileobj = io.BytesIO(b'{"key": "value"}')
+    upload_fileobj(
+        BUCKET,
+        "data.json",
+        fileobj,
+        content_type="application/json",
+        region_name=REGION,
+    )
+    result = download_bytes(BUCKET, "data.json", region_name=REGION)
+    assert result == b'{"key": "value"}'
+    meta = get_object_metadata(BUCKET, "data.json", region_name=REGION)
+    assert meta["content_type"] == "application/json"
+
+
+def test_upload_fileobj_runtime_error(monkeypatch):
+    import io
+    from botocore.exceptions import ClientError
+    from unittest.mock import MagicMock
+    import aws_util.s3 as s3mod
+
+    mock_client = MagicMock()
+    mock_client.upload_fileobj.side_effect = ClientError(
+        {"Error": {"Code": "NoSuchBucket", "Message": "not found"}},
+        "UploadFileobj",
+    )
+    monkeypatch.setattr(s3mod, "get_client", lambda *a, **kw: mock_client)
+    with pytest.raises(RuntimeError, match="Failed to upload fileobj"):
+        upload_fileobj("noexist", "key", io.BytesIO(b"data"), region_name=REGION)
+
+
+def test_list_object_versions_delete_markers(s3_client):
+    """Delete markers appear as S3ObjectVersion with is_delete_marker=True."""
+    s3_client.put_bucket_versioning(
+        Bucket=BUCKET,
+        VersioningConfiguration={"Status": "Enabled"},
+    )
+    s3_client.put_object(Bucket=BUCKET, Key="to-delete.txt", Body=b"v1")
+    s3_client.delete_object(Bucket=BUCKET, Key="to-delete.txt")
+
+    versions = list_object_versions(BUCKET, region_name=REGION)
+    markers = [v for v in versions if v.is_delete_marker]
+    assert len(markers) >= 1
+    assert markers[0].key == "to-delete.txt"
+
+
+def test_list_object_versions_pagination(s3_client, monkeypatch):
+    """Pagination loop continues when IsTruncated is True."""
+    import aws_util.s3 as s3mod
+    from unittest.mock import MagicMock
+
+    page1 = {
+        "IsTruncated": True,
+        "Versions": [
+            {"Key": "a.txt", "VersionId": "v1", "IsLatest": True},
+        ],
+        "DeleteMarkers": [],
+        "NextKeyMarker": "a.txt",
+        "NextVersionIdMarker": "v1",
+    }
+    page2 = {
+        "IsTruncated": False,
+        "Versions": [
+            {"Key": "b.txt", "VersionId": "v2", "IsLatest": True},
+        ],
+        "DeleteMarkers": [],
+    }
+    mock_client = MagicMock()
+    mock_client.list_object_versions.side_effect = [page1, page2]
+    monkeypatch.setattr(s3mod, "get_client", lambda *a, **kw: mock_client)
+
+    versions = list_object_versions(BUCKET, region_name=REGION)
+    assert len(versions) == 2
+    assert versions[0].key == "a.txt"
+    assert versions[1].key == "b.txt"
+    assert mock_client.list_object_versions.call_count == 2

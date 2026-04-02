@@ -7,6 +7,8 @@ from aws_util.exceptions import wrap_aws_error
 
 __all__ = [
     "delete_parameter",
+    "delete_parameters",
+    "describe_parameters",
     "get_parameter",
     "get_parameters_batch",
     "get_parameters_by_path",
@@ -173,3 +175,71 @@ def get_parameter(
         return resp["Parameter"]["Value"]
     except ClientError as exc:
         raise wrap_aws_error(exc, f"Error resolving SSM parameter {name!r}") from exc
+
+
+def describe_parameters(
+    filters: list[dict[str, object]] | None = None,
+    max_results: int = 50,
+    region_name: str | None = None,
+) -> list[dict[str, object]]:
+    """List SSM parameters with optional filters.
+
+    Uses ``DescribeParameters`` with automatic pagination.
+
+    Args:
+        filters: Optional list of SSM ``ParameterFilters`` dicts, e.g.
+            ``[{"Key": "Name", "Option": "BeginsWith",
+            "Values": ["/myapp/"]}]``.
+        max_results: Page size per API call (1–50, default ``50``).
+        region_name: AWS region override.
+
+    Returns:
+        A list of parameter metadata dicts as returned by SSM.
+
+    Raises:
+        RuntimeError: If the API call fails.
+    """
+    client = get_client("ssm", region_name)
+    kwargs: dict[str, object] = {"MaxResults": max_results}
+    if filters:
+        kwargs["ParameterFilters"] = filters
+
+    parameters: list[dict[str, object]] = []
+    try:
+        while True:
+            resp = client.describe_parameters(**kwargs)
+            parameters.extend(resp.get("Parameters", []))
+            next_token = resp.get("NextToken")
+            if not next_token:
+                break
+            kwargs["NextToken"] = next_token
+    except ClientError as exc:
+        raise wrap_aws_error(exc, "describe_parameters failed") from exc
+    return parameters
+
+
+def delete_parameters(
+    names: list[str],
+    region_name: str | None = None,
+) -> list[str]:
+    """Delete up to 10 SSM parameters in a single API call.
+
+    Args:
+        names: List of parameter names to delete (up to 10).
+        region_name: AWS region override.
+
+    Returns:
+        List of parameter names that were successfully deleted.
+
+    Raises:
+        ValueError: If more than 10 names are supplied.
+        RuntimeError: If the API call fails.
+    """
+    if len(names) > 10:
+        raise ValueError("delete_parameters supports at most 10 names per call")
+    client = get_client("ssm", region_name)
+    try:
+        resp = client.delete_parameters(Names=names)
+    except ClientError as exc:
+        raise wrap_aws_error(exc, f"delete_parameters failed for {names!r}") from exc
+    return resp.get("DeletedParameters", [])
