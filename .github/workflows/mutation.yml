@@ -1,0 +1,27 @@
+name: Mutation Test
+
+on: [push, pull_request]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # Using the built-in pip cache helps significantly with large dependency sets
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Use --prefer-binary to speed up installation of heavy packages like cryptography
+          pip install --prefer-binary -e .[dev]
+          pip install pytest-gremlins
+
+      - name: Run tests
+        run: |
+          pytest tests/ --gremlins

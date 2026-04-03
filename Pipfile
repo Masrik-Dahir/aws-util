@@ -1,0 +1,55 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+boto3 = "*"
+botocore = "*"
+pydantic = ">=2.0"
+cryptography = ">=42.0"
+aiohttp = ">=3.9"
+
+[dev-packages]
+# Task runner
+taskipy = "*"
+# Build & publish
+build = "*"
+twine = "*"
+# Testing
+pytest = "*"
+pytest-cov = "*"
+pytest-asyncio = "*"
+pytest-gremlins = "*"
+moto = {extras = [
+    "s3", "s3crc32c",
+    "dynamodb", "dynamodbstreams",
+    "ssm",
+    "awslambda",
+    "events",
+    "cloudformation",
+    "stepfunctions",
+    "glue",
+    "cognitoidp",
+    "apigateway", "apigatewayv2"
+], version = "*"}
+# Linting & formatting
+black = "*"
+ruff = "*"
+# Type checking
+mypy = "*"
+boto3-stubs = {extras = [
+    "s3", "sqs", "sns", "dynamodb", "ssm", "secretsmanager",
+    "lambda", "cloudwatch", "logs", "sts", "events", "kms",
+    "ec2", "rds", "ecs", "ecr", "iam", "cognito-idp",
+    "route53", "acm", "stepfunctions", "cloudformation",
+    "kinesis", "firehose", "ses", "glue", "athena",
+    "bedrock-runtime", "bedrock", "rekognition",
+    "textract", "comprehend", "translate",
+    "apigateway", "apigatewayv2", "lakeformation",
+    "sagemaker", "ce", "guardduty", "config", "backup",
+    "application-autoscaling"
+], version = "*"}
+
+[requires]
+python_version = "3.12"

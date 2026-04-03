@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aws-util"
+version = "2.2.3"
+description = "A utility library for common AWS services"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Masrik Dahir", email = "info@masrikdahir.com" }]
+requires-python = ">=3.10"
+dependencies = [
+    "boto3",
+    "pydantic>=2.0",
+    "cryptography>=42.0",
+    "aiohttp>=3.9",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Intended Audience :: Developers",
+]
+
+[project.urls]
+Homepage = "https://www.masrikdahir.com"
+Source = "https://github.com/Masrik-Dahir/aws-util"
+Tracker = "https://github.com/Masrik-Dahir/aws-util/issues"
+
+[project.optional-dependencies]
+dev = [
+    "build",
+    "twine",
+    "taskipy",
+    "pytest",
+    "pytest-cov",
+    "pytest-asyncio",
+    "black",
+    "ruff",
+    "mypy",
+    "boto3-stubs[s3,sqs,sns,dynamodb,ssm,secretsmanager,lambda,cloudwatch,logs,sts,events,kms,ec2,rds,ecs,ecr,iam,cognito-idp,route53,acm,stepfunctions,cloudformation,kinesis,firehose,ses,glue,athena,bedrock-runtime,bedrock,rekognition,textract,comprehend,translate]",
+    "moto[s3,sqs,sns,dynamodb,ssm,secretsmanager,lambda,cloudwatch,logs,sts,events,kms,ec2,rds,ecs,ecr,iam,cognito-idp,route53,acm,stepfunctions,cloudformation,kinesis,firehose,ses,glue,athena]",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = [
+    "E501",   # line length — enforced by formatter, not linter
+    "UP007",  # X | Y union syntax — already used, but some contexts need Optional
+    "B010",   # do not call setattr with constant attr — false positives on dynamic code
+    "SIM108", # ternary operator — readability preference
+    "SIM103", # return-bool-op — readability preference in guard clauses
+    "SIM105", # contextlib.suppress — explicit try/except is clearer for AWS error handling
+    "RUF001", # ambiguous unicode in strings — intentional (math symbols)
+    "RUF002", # ambiguous unicode in docstrings — intentional (en-dash, math symbols)
+    "RUF012", # mutable class variable — Pydantic handles this safely
+    "RUF034", # useless if-else — false positive on type-narrowing patterns
+]
+
+[tool.taskipy.tasks]
+install         = "pip install -e .[dev]"
+clean           = "python -c \"import shutil, glob; [shutil.rmtree(p, ignore_errors=True) for p in ['dist','build']+glob.glob('src/*.egg-info')]\""
+build           = "task clean && python -m build"
+bump            = "python -c \"import re, sys; from pathlib import Path; p = Path('pyproject.toml'); content = p.read_text(); v = re.search(r'^version = \\\"(\\d+)\\.(\\d+)\\.(\\d+)\\\"', content, re.MULTILINE); major, minor, patch = map(int, v.groups()); new_v = f'{major+1}.0.0' if 'major' in sys.argv else f'{major}.{minor+1}.0'; p.write_text(re.sub(r'^version = \\\".*?\\\"', f'version = \\\"{new_v}\\\"', content, count=1, flags=re.MULTILINE)); print(f'Bumped to {new_v}')\""
+publish         = "task bump minor && task build && python -m twine upload dist/*"
+"publish:major" = "task bump major && task build && python -m twine upload dist/*"
+"publish:minor" = "task publish"
+publish-test    = "task build && python -m twine upload --repository testpypi dist/*"
+test            = "pytest tests/ -v"
+test-cov        = "pytest tests/ -v --cov=src/aws_util --cov-report=term-missing"
+mutation-test   = "pytest tests/ --gremlins"
+lint            = "ruff check --fix --unsafe-fixes src/ && ruff format src/"
+typecheck       = "mypy src/aws_util/"
+coverage        = "pytest --cov=src/ --cov-report=term-missing --cov-fail-under=100"
+prepare         = "task lint && task test && task coverage && task typecheck"
+release         = "task prepare && task publish"
+"release:major" = "task prepare && task publish:major"
+"release:minor" = "task release"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+# "auto" detects async test functions without explicit @pytest.mark.asyncio.
+# Trade-off: a missing `async` keyword on a test won't fail, it runs sync.
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore:Core Pydantic V1 functionality:UserWarning",
+]
+
+[tool.coverage.run]
+omit = []
+
+[tool.coverage.report]
+omit = []
+
+[tool.setuptools.package-data]
+aws_util = ["py.typed"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

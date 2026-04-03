@@ -1,0 +1,83 @@
+[
+  {
+    "timestamp": "2026-03-29T01:10:36.835543+00:00",
+    "score": 100.0,
+    "by_file": {
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\placeholder.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\lambda_.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\ec2.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\rds.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\ecs.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\iam.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\cognito.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\cloudformation.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\kinesis.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\route53.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\stepfunctions.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\bedrock.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\textract.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\comprehend.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\ses.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\athena.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\sns.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\sts.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\eventbridge.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\acm.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\firehose.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\glue.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\rekognition.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\kms.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\parameter_store.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\secrets_manager.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\s3.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\sqs.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\config_loader.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\data_pipeline.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\translate.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\_client.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\cloudwatch.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\dynamodb.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\ecr.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\deployer.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\notifier.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\security_ops.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\resource_ops.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\lambda_middleware.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\api_gateway.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\event_orchestration.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\data_flow_etl.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\resilience.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\security_compliance.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\deployment.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\cost_optimization.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\config_state.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\testing_dev.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\observability.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\messaging.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\ai_ml_pipelines.py": 100.0,
+      "E:\\Repo\\App\\Utility\\AWS_util\\src\\aws_util\\infra_automation.py": 100.0
+    },
+    "by_operator": {
+      "boolean": {
+        "total": 727,
+        "survived": 0
+      },
+      "return": {
+        "total": 583,
+        "survived": 0
+      },
+      "arithmetic": {
+        "total": 143,
+        "survived": 0
+      },
+      "comparison": {
+        "total": 303,
+        "survived": 0
+      },
+      "boundary": {
+        "total": 80,
+        "survived": 0
+      }
+    }
+  }
+]
